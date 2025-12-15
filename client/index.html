@@ -16,11 +16,15 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      console.log("INDEX HTML RECEIVED AND PARSED");
+      window.onerror = function(msg, url, line) {
+        console.error("GLOBAL ERROR: " + msg + " at " + url + ":" + line);
+        document.body.innerHTML += "<div style='color:red;background:white;z-index:9999'>GLOBAL ERROR: " + msg + "</div>";
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+
   </body>
 
 </html>

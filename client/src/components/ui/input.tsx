@@ -22,6 +22,7 @@ function Input({
   } = useComposition<HTMLInputElement>({
     onKeyDown: (e) => {
       // Check if this is an Enter key that should be blocked
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isComposing = (e.nativeEvent as any).isComposing || dialogComposition.justEndedComposing();
 
       // If Enter key is pressed while composing or just after composition ended,

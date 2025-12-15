@@ -5,13 +5,37 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "@/pages/Home";
+import Login from "@/pages/Login"; // Import Login
+import { auth } from "@/lib/auth"; // Import auth utility
+import { useLocation } from "wouter";
+import { useEffect } from "react";
 
+
+// Protected Route Wrapper
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!auth.isAuthenticated()) {
+      setLocation("/login");
+    }
+  }, [location, setLocation]);
+
+  if (!auth.isAuthenticated()) {
+    return null; // Or a loading spinner while redirecting
+  }
+
+  return <Component />;
+}
 
 function Router() {
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
+      <Route path="/login" component={Login} />
+      <Route path="/">
+        <ProtectedRoute component={Home} />
+      </Route>
+      <Route path="/404" component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
@@ -24,6 +48,7 @@ function Router() {
 // - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
 function App() {
+  console.log("APP COMPONENT RENDERING"); // DEBUG LOG
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">

@@ -9,6 +9,13 @@ export interface LotInfo {
   notes: string;
   createdAt: Date;
   updatedAt: Date;
+  documentation?: string;
+  owner?: string;
+  price?: number;
+  area?: number;
+  photos?: string[];
+  documents?: { name: string; url: string }[];
+  ownerContact?: string;
 }
 
 export interface Lot {
@@ -17,12 +24,14 @@ export interface Lot {
   lote: string;
   coordinates: [number, number][]; // Array de [x, y] para SVG
   info: LotInfo;
+  center?: [number, number] | { x: number, y: number } | null;
 }
 
 export interface Quadra {
   id: string;
   name: string;
   lots: Lot[];
+  center?: [number, number] | { x: number, y: number } | null;
 }
 
 export interface MapData {

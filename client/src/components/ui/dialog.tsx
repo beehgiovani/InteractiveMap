@@ -71,6 +71,8 @@ function DialogClose({
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
+import Draggable from "react-draggable";
+
 function DialogOverlay({
   className,
   ...props
@@ -79,7 +81,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 grid place-items-center overflow-y-auto py-10",
         className
       )}
       {...props}
@@ -99,11 +101,13 @@ function DialogContent({
   showCloseButton?: boolean;
 }) {
   const { isComposing } = useDialogComposition();
+  const nodeRef = React.useRef(null); // Ref for Draggable to avoid strict mode warnings
 
   const handleEscapeKeyDown = React.useCallback(
     (e: KeyboardEvent) => {
       // Check both the native isComposing property and our context state
       // This handles Safari's timing issues with composition events
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isCurrentlyComposing = (e as any).isComposing || isComposing();
 
       // If IME is composing, prevent dialog from closing
@@ -120,27 +124,31 @@ function DialogContent({
 
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
-          className
-        )}
-        onEscapeKeyDown={handleEscapeKeyDown}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
+      <DialogOverlay>
+        <Draggable nodeRef={nodeRef} handle=".dialog-handle">
+            <DialogPrimitive.Content
+                ref={nodeRef}
+                data-slot="dialog-content"
+                className={cn(
+                "bg-zinc-950/90 backdrop-blur-xl border border-white/20 text-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl shadow-2xl duration-200 sm:max-w-lg",
+                className
+                )}
+                onEscapeKeyDown={handleEscapeKeyDown}
+                {...props}
+            >
+                {children}
+                {showCloseButton && (
+                <DialogPrimitive.Close
+                    data-slot="dialog-close"
+                    className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-full p-1 opacity-70 transition-all hover:opacity-100 hover:bg-white/10 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 text-gray-400 hover:text-white"
+                >
+                    <XIcon />
+                    <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
+                )}
+            </DialogPrimitive.Content>
+        </Draggable>
+      </DialogOverlay>
     </DialogPortal>
   );
 }
