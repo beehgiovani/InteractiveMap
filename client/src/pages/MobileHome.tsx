@@ -14,6 +14,7 @@ import InteractiveMap from "@/components/InteractiveMap";
 import { LotInspector } from "@/components/LotInspector";
 import { SmartCalcModal } from "@/components/SmartCalcModal";
 import { SmartCalcNavigator } from "@/components/SmartCalcNavigator";
+import { MobileSearchNavigator } from "@/components/mobile/MobileSearchNavigator";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { CombinationResult } from "@/lib/adjacency";
@@ -26,6 +27,7 @@ export default function MobileHome() {
   const [highlightedLots, setHighlightedLots] = useState<Lot[]>([]);
   const [calcResults, setCalcResults] = useState<CombinationResult[]>([]);
   const [isSmartCalcOpen, setIsSmartCalcOpen] = useState(false);
+  const [highlightSource, setHighlightSource] = useState<'search' | 'smart_calc' | null>(null);
   const [startEditing, setStartEditing] = useState(false);
   
   const [lotsData, setLotsData] = useState<Map<string, LotInfo>>(() => {
@@ -329,7 +331,9 @@ export default function MobileHome() {
             lastSaved={lastSaved}
             highlightedLots={highlightedLots}
             onSetHighlightedLots={setHighlightedLots}
+            onSetHighlightSource={setHighlightSource}
             onOpenSmartCalc={() => setIsSmartCalcOpen(true)}
+            isMobile={true}
         />
         
         <SidebarInset className="relative flex flex-col flex-1 h-full overflow-hidden">
@@ -381,25 +385,52 @@ export default function MobileHome() {
         </SidebarInset>
 
         {/* LOT INSPECTOR (FLOATING - Mobile optimized) */}
-        <LotInspector 
-           lot={selectedLot}
-           onClose={handleCloseLotFolder}
-           onSave={handleSaveLotInfo}
-           lotsData={lotsData}
-           isMobile={true}
-        />
+        {/* Don't show when browsing search results to avoid overlap */}
+        {highlightSource !== 'search' && (
+            <LotInspector 
+               lot={selectedLot}
+               onClose={handleCloseLotFolder}
+               onSave={handleSaveLotInfo}
+               lotsData={lotsData}
+               isMobile={true}
+            />
+        )}
+
+        {/* SEARCH NAVIGATOR (FLOATING ON MAP) */}
+        {highlightSource === 'search' && (
+            <MobileSearchNavigator 
+                highlightedLots={highlightedLots}
+                selectedLot={selectedLot}
+                onSelectLot={(lot) => {
+                    handleLotClick(lot, false);
+                    setHighlightSource('search');
+                }}
+                onClose={() => {
+                    setHighlightedLots([]);
+                    setHighlightSource(null);
+                }}
+                lotsData={lotsData}
+            />
+        )}
 
         {/* SMART CALC NAVIGATOR (FLOATING ON MAP) */}
-        <SmartCalcNavigator 
-           searchResults={calcResults}
-           highlightedLots={highlightedLots}
-           onSetHighlightedLots={setHighlightedLots}
-           onClose={() => {
-               setHighlightedLots([]);
-           }}
-           lotsData={lotsData}
-           isMobile={true}
-        />
+        {highlightSource === 'smart_calc' && (
+            <SmartCalcNavigator 
+                searchResults={calcResults}
+                highlightedLots={highlightedLots}
+                onSetHighlightedLots={(lots) => {
+                    setHighlightedLots(lots);
+                    setHighlightSource(lots.length > 0 ? 'smart_calc' : null);
+                }}
+                onClose={() => {
+                    setHighlightedLots([]);
+                    setHighlightSource(null);
+                    setCalcResults([]);
+                }}
+                lotsData={lotsData}
+                isMobile={true}
+            />
+        )}
 
         {/* SMART CALC MODAL */}
         <SmartCalcModal 
@@ -407,7 +438,10 @@ export default function MobileHome() {
             onOpenChange={setIsSmartCalcOpen}
             manualLots={manualLots}
             lotsData={lotsData}
-            onSetHighlightedLots={setHighlightedLots}
+            onSetHighlightedLots={(lots) => {
+                setHighlightedLots(lots);
+                setHighlightSource(lots.length > 0 ? 'smart_calc' : null);
+            }}
             onSelectLot={handleLotClick}
             highlightedLots={highlightedLots}
             calcResults={calcResults}

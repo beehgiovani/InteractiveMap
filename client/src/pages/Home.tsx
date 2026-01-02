@@ -5,13 +5,15 @@
  * Integra o componente de mapa com a pasta de lote
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Lot, LotInfo } from "@/types";
 import InteractiveMap from "@/components/InteractiveMap";
 import { LotInspector } from "@/components/LotInspector";
 import { SmartCalcModal } from "@/components/SmartCalcModal";
 import { SmartCalcNavigator } from "@/components/SmartCalcNavigator";
 import { SearchNavigator } from "@/components/SearchNavigator";
+import { MobileSearchNavigator } from "@/components/mobile/MobileSearchNavigator";
+import { MobileQuickActions } from "@/components/MobileQuickActions";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { CombinationResult } from "@/lib/adjacency";
@@ -332,10 +334,8 @@ export default function Home() {
             onExportBackup={handleExportBackup}
             lastSaved={lastSynced}
             highlightedLots={highlightedLots}
-            onSetHighlightedLots={(lots) => {
-                setHighlightedLots(lots);
-                setHighlightSource(lots.length > 0 ? 'search' : null);
-            }}
+            onSetHighlightedLots={setHighlightedLots}
+            onSetHighlightSource={setHighlightSource}
             onOpenSmartCalc={() => setIsSmartCalcOpen(true)}
             isMobile={isMobile}
         />
@@ -386,19 +386,54 @@ export default function Home() {
 
         {/* SEARCH NAVIGATOR (FLOATING ON MAP) */}
         {highlightSource === 'search' && (
-            <SearchNavigator 
+            isMobile ? (
+                <MobileSearchNavigator 
+                    highlightedLots={highlightedLots}
+                    selectedLot={selectedLot}
+                    onSelectLot={(lot) => {
+                        handleLotClick(lot, false);
+                        setHighlightSource('search');
+                    }}
+                    onClose={() => {
+                        setHighlightedLots([]);
+                        setHighlightSource(null);
+                    }}
+                    lotsData={lotsData}
+                />
+            ) : (
+                <SearchNavigator 
+                    highlightedLots={highlightedLots}
+                    selectedLot={selectedLot}
+                    onSelectLot={(lot) => {
+                        handleLotClick(lot, false);
+                        setHighlightSource('search');
+                    }}
+                    onClose={() => {
+                        setHighlightedLots([]);
+                        setHighlightSource(null);
+                    }}
+                    lotsData={lotsData}
+                    isMobile={false}
+                />
+            )
+        )}
+
+        {/* SMART CALC NAVIGATOR (FLOATING ON MAP) */}
+        {highlightSource === 'smart_calc' && (
+            <SmartCalcNavigator 
+                searchResults={calcResults}
                 highlightedLots={highlightedLots}
-                selectedLot={selectedLot}
-                onSelectLot={(lot) => {
-                    handleLotClick(lot, false);
-                    // Ensure highlight source remains search
-                    setHighlightSource('search');
+                onSetHighlightedLots={(lots) => {
+                    setHighlightedLots(lots);
+                    setHighlightSource(lots.length > 0 ? 'smart_calc' : null);
                 }}
                 onClose={() => {
                     setHighlightedLots([]);
                     setHighlightSource(null);
+                    setCalcResults([]);
                 }}
                 lotsData={lotsData}
+                isMobile={isMobile}
             />
         )}
 

@@ -1983,6 +1983,58 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
       return null;
   };
 
+  /* Helper to Auto-Center on Highlighted Lots (Smart Calculator) */
+  const LeafletCenterOnHighlighted = () => {
+      const map = useMap();
+      
+      useEffect(() => {
+          if (!highlightedLots || highlightedLots.length === 0 || !mapDataComplete) return;
+          
+          // Get the first highlighted lot to center on
+          const lot = highlightedLots[0];
+          if (!lot) return;
+
+          // Calculate lot center
+          let cx = 0, cy = 0;
+          if (lot.center) {
+              if (Array.isArray(lot.center)) {
+                  cx = lot.center[0];
+                  cy = lot.center[1];
+              } else {
+                  // @ts-ignore
+                  cx = lot.center.x; 
+                  // @ts-ignore
+                  cy = lot.center.y;
+              }
+          } else {
+              // Fallback to coordinates
+              const flatCoords = (lot.coordinates.length > 0 && Array.isArray(lot.coordinates[0][0]))
+                  ? (lot.coordinates as [number, number][][]).flat()
+                  : (lot.coordinates as [number, number][]);
+
+              flatCoords.forEach(p => { cx += p[0]; cy += p[1]; });
+              if (flatCoords.length > 0) {
+                  cx /= flatCoords.length;
+                  cy /= flatCoords.length;
+              }
+          }
+
+          if (cx === 0 && cy === 0) return;
+
+          // Convert to GPS
+          const gps = svgToGeo(cx, cy);
+          if (gps) {
+              const zoom = 19; // High zoom for highlighted lot
+              map.flyTo([gps.lat, gps.lng], zoom, {
+                  animate: true,
+                  duration: 1.5
+              });
+          }
+      }, [highlightedLots]);
+
+      return null;
+  };
+
   /* Helper Component for handling Leaflet clicks/events */
   const LeafletMapEvents = () => {
     const map = useMapEvents({
@@ -2064,6 +2116,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
                         {/* LEAFLET DEV TOOLS & EVENT HANDLER */}
                         <LeafletMapEvents />
                         <LeafletAutoCenter />
+                        <LeafletCenterOnHighlighted />
 
                         {/* DRAWING MODE VISUALS (Leaflet) */}
                         {editorMode === 'draw-lot' && (
@@ -2874,7 +2927,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
         {/* --- UI CONTROLS (Dev Mode) --- */}
         
         {/* DEV MODE TOGGLE - Moved to Top Left to avoid conflict with LayerSelector */}
-        <div className="absolute top-4 left-4 z-[1000]">
+        <div className="absolute top-4 left-24 z-[1000]">
             <button 
                 className={`px-4 py-2 rounded-xl shadow-lg border backdrop-blur-md font-bold transition-all ${isDevMode ? 'bg-red-500/90 border-red-400 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-black/60'}`}
                 onClick={() => setIsDevMode(!isDevMode)}

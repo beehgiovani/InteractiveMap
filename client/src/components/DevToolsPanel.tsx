@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { toast } from "sonner";
+import { Progress } from "@/components/ui/progress";
+import { Layers } from "lucide-react";
 
 interface DevToolsPanelProps {
   isDevMode: boolean;
@@ -35,6 +38,8 @@ export default function DevToolsPanel({
   finishDrawingLot,
   setManualLots
 }: DevToolsPanelProps) {
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   
   const handleFixCenters = () => {
     const updated = manualLots.map(lot => {
@@ -247,13 +252,75 @@ export default function DevToolsPanel({
             </div>
           )}
 
-          {/* Ferramentas Utilitárias */}
           <div className="space-y-2 pt-2 border-t border-gray-200">
             <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
               <span>🛠️</span> Utilitários
             </div>
+            
+            <input 
+              type="file" 
+              accept=".json"
+              className="hidden"
+              id="import-json-trigger"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                
+                e.target.value = '';
+                const confirmImport = confirm(`Importar dados de "${file.name}"? Isso atualizará lotes existentes.`);
+                if (!confirmImport) return;
+
+                try {
+                  setIsImporting(true);
+                  setImportProgress(0);
+                  
+                  const { importLotData } = await import("@/lib/dataImport");
+                  const text = await file.text();
+                  const json = JSON.parse(text);
+                  
+                  if (!Array.isArray(json)) throw new Error("O arquivo deve conter uma lista JSON.");
+                  
+                  const res = await importLotData(json, (current, total) => {
+                    const pct = Math.round((current / total) * 100);
+                    setImportProgress(pct);
+                  });
+
+                  if (res.errors > 0) {
+                    toast.warning(`Importado: ${res.processed} | Erros: ${res.errors}.`);
+                  } else {
+                    toast.success(`Sucesso! ${res.processed} lotes atualizados.`);
+                  }
+                  
+                } catch (err: any) {
+                  console.error(err);
+                  toast.error(err.message);
+                } finally {
+                  setIsImporting(false);
+                  setImportProgress(0);
+                }
+              }}
+            />
+
+            {isImporting ? (
+              <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 space-y-2 mb-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] uppercase text-emerald-700 font-bold">Importando...</span>
+                  <span className="text-xs font-mono text-emerald-800">{importProgress}%</span>
+                </div>
+                <Progress value={importProgress} className="h-1 bg-emerald-100" />
+              </div>
+            ) : (
+              <button 
+                className="w-full px-3 py-2 text-xs bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-all shadow-md flex items-center justify-center gap-2"
+                onClick={() => document.getElementById('import-json-trigger')?.click()}
+                title="Importar dados de backup JSON"
+              >
+                📥 Importar Dados
+              </button>
+            )}
+
             <button 
-              className="w-full px-3 py-2 text-xs bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-all shadow-md"
+              className="w-full px-3 py-2 text-xs bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-all shadow-md mt-2"
               onClick={handleFixCenters}
               title="Recalcular centros de todos os lotes"
             >

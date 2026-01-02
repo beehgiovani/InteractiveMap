@@ -292,7 +292,7 @@ export function LotInspector({ lot, onClose, onSave, lotsData, isEditable = true
         }
     };
 
-    // MOBILE: Fullscreen Drawer
+    // MOBILE: Bottom Sheet (2/3 screen max)
     if (isMobile) {
         return (
             <>
@@ -302,45 +302,44 @@ export function LotInspector({ lot, onClose, onSave, lotsData, isEditable = true
                     onClick={onClose}
                 />
                 
-                {/* Drawer */}
-                <div className="fixed inset-x-0 bottom-0 top-16 z-[101] bg-black/80 backdrop-blur-2xl border-t border-white/20 overflow-hidden flex flex-col animate-in slide-in-from-bottom-full rounded-t-3xl shadow-[0_-8px_32px_rgba(0,0,0,0.5)]">
+                {/* Bottom Sheet - Max 2/3 screen */}
+                <div className="fixed inset-x-0 bottom-0 z-[101] bg-black/90 backdrop-blur-2xl border-t border-white/20 overflow-hidden flex flex-col animate-in slide-in-from-bottom rounded-t-3xl shadow-[0_-8px_32px_rgba(0,0,0,0.5)] max-h-[67vh]">
+                    {/* Drag Handle */}
+                    <div className="pt-2 pb-1 flex justify-center">
+                        <div className="w-12 h-1.5 bg-white/30 rounded-full" />
+                    </div>
+
                     {/* Header - Sticky */}
-                    <div className="bg-white/5 p-4 flex items-center justify-between border-b border-white/10 shadow-lg backdrop-blur-md">
+                    <div className="bg-white/5 px-5 py-4 flex items-center justify-between border-b border-white/10 shadow-lg backdrop-blur-md shrink-0">
                         <div className="flex items-center gap-3">
-                            <div className={`w-3 h-3 rounded-full ${isAvailable ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : status === 'ocupado' ? 'bg-red-500' : status === 'livre' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
+                            <div className={`w-4 h-4 rounded-full ${isAvailable ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : status === 'ocupado' ? 'bg-red-500' : status === 'livre' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
                             <div className="flex flex-col">
-                                <h3 className="font-bold text-white text-lg leading-none">
+                                <h3 className="font-bold text-white text-xl leading-none">
                                     Lote {lot.lote}
                                 </h3>
-                                <span className="text-xs text-blue-200/70 font-medium uppercase tracking-widest">
+                                <span className="text-sm text-blue-200/70 font-medium uppercase tracking-widest mt-1">
                                     Quadra {lot.quadra}
                                 </span>
                             </div>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full bg-white/5 hover:bg-white/20 text-gray-300 hover:text-white transition-all active:scale-90" onClick={onClose}>
-                            <X size={22} />
-                        </Button>
+                        <button 
+                            onClick={onClose}
+                            className="h-12 w-12 rounded-full bg-white/5 hover:bg-white/20 active:bg-white/30 text-gray-300 hover:text-white transition-all flex items-center justify-center"
+                            aria-label="Fechar"
+                        >
+                            <X size={24} />
+                        </button>
                     </div>
 
                     {/* Toolbar - Sticky */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/5 backdrop-blur-sm">
-                        <span className="text-xs text-gray-400 uppercase tracking-wider font-bold">Detalhes</span>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 text-xs bg-white/5 hover:bg-white/10 text-gray-300"
+                    <div className="flex items-center justify-between px-5 py-3 bg-white/5 border-b border-white/5 backdrop-blur-sm shrink-0 sticky top-0 z-10">
+                        <span className="text-sm text-gray-400 uppercase tracking-wider font-bold">Detalhes</span>
+                        <div className="flex items-center gap-3">
+                            <button
                                 onClick={() => {
                                     // Calculate centroid
                                     if (lot.coordinates && lot.coordinates.length > 0) {
                                         let points: [number, number][];
-                                        // Check if coordinates are MultiPolygon (array of arrays of points)
-                                        // lot.coordinates[0] is the first element. If it's an array of arrays (first element is array), it's Multi.
-                                        // lots are either [number, number][] or [number, number][][]
-                                        // If it is [number, number][][], the first element is [number, number][].
-                                        // If it is [number, number][], the first element is [number, number].
-                                        // We check if the first element's first element is a number.
-                                        
                                         const firstEl = lot.coordinates[0];
                                         const isMulti = Array.isArray(firstEl) && Array.isArray(firstEl[0]);
 
@@ -358,44 +357,43 @@ export function LotInspector({ lot, onClose, onSave, lotsData, isEditable = true
                                         }
                                     }
                                 }}
+                                className="h-12 px-4 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-gray-300 hover:text-white transition-all flex items-center gap-2 text-sm font-medium"
                             >
-                                <Navigation size={14} className="mr-1 text-blue-400" /> GPS
-                            </Button>
+                                <Navigation size={18} className="text-blue-400" /> GPS
+                            </button>
                             {isEditable && (
-                                <Button 
-                                    size="sm" 
-                                    variant={isEditing ? "default" : "secondary"}
+                                <button 
                                     onClick={() => isEditing ? handleSave() : setIsEditing(true)}
-                                    className={`h-8 text-xs ${isEditing ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'}`}
+                                    className={`h-12 px-5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${isEditing ? 'bg-green-600 hover:bg-green-700 active:bg-green-800 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 active:bg-blue-600/40'}`}
                                 >
-                                    {isEditing ? <><Save size={14} className="mr-1"/> Salvar</> : <><Edit2 size={14} className="mr-1"/> Editar</>}
-                                </Button>
+                                    {isEditing ? <><Save size={18}/> Salvar</> : <><Edit2 size={18}/> Editar</>}
+                                </button>
                             )}
                         </div>
                     </div>
 
                     {/* Content - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="space-y-4" key={isEditing ? 'editing' : 'viewing'}>
+                    <div className="flex-1 overflow-y-auto p-5">
+                        <div className="space-y-5" key={isEditing ? 'editing' : 'viewing'}>
                             
                             {/* PRICE & AREA */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                    <Label className="text-xs text-gray-500 uppercase flex items-center gap-1"><DollarSign size={12}/> Preço (R$)</Label>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-sm text-gray-400 uppercase flex items-center gap-1.5"><DollarSign size={14}/> Preço (R$)</Label>
                                     {isEditing ? (
-                                        <Input className="h-11 bg-black/50 text-white border-white/20 text-base" value={price} onChange={e => setPrice(e.target.value)} type="number" placeholder="0.00" />
+                                        <Input className="h-14 bg-black/50 text-white border-white/20 text-lg" value={price} onChange={e => setPrice(e.target.value)} type="number" placeholder="0.00" />
                                     ) : (
-                                        <div className="font-mono text-xl text-green-400 font-bold">
+                                        <div className="font-mono text-2xl text-green-400 font-bold">
                                             {price ? Number(price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : "--"}
                                         </div>
                                     )}
                                 </div>
-                                <div className="space-y-1">
-                                    <Label className="text-xs text-gray-500 uppercase flex items-center gap-1"><Ruler size={12}/> Área (m²)</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-sm text-gray-400 uppercase flex items-center gap-1.5"><Ruler size={14}/> Área (m²)</Label>
                                     {isEditing ? (
-                                        <Input className="h-11 bg-black/50 text-white border-white/20 text-base" value={area} onChange={e => setArea(e.target.value)} type="number" placeholder="0" />
+                                        <Input className="h-14 bg-black/50 text-white border-white/20 text-lg" value={area} onChange={e => setArea(e.target.value)} type="number" placeholder="0" />
                                     ) : (
-                                        <div className="font-mono text-xl text-blue-400 font-bold">
+                                        <div className="font-mono text-2xl text-blue-400 font-bold">
                                             {area ? `${area} m²` : "--"}
                                         </div>
                                     )}
@@ -406,28 +404,28 @@ export function LotInspector({ lot, onClose, onSave, lotsData, isEditable = true
 
                             {/* LOCATION INFO (New) */}
                             <div className="grid grid-cols-3 gap-3">
-                                <div className="space-y-1">
-                                    <Label className="text-xs text-gray-500 uppercase">Zona</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-sm text-gray-400 uppercase">Zona</Label>
                                     {isEditing ? (
-                                        <Input className="h-9 bg-black/50 text-white border-white/20 text-sm" value={zona} onChange={e => setZona(e.target.value)} placeholder="Ex: Z1" />
+                                        <Input className="h-12 bg-black/50 text-white border-white/20 text-base" value={zona} onChange={e => setZona(e.target.value)} placeholder="Ex: Z1" />
                                     ) : (
-                                        <div className="text-base text-gray-300 font-medium">{zona || "--"}</div>
+                                        <div className="text-lg text-gray-300 font-medium">{zona || "--"}</div>
                                     )}
                                 </div>
-                                <div className="space-y-1">
-                                    <Label className="text-xs text-gray-500 uppercase">Setor</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-sm text-gray-400 uppercase">Setor</Label>
                                     {isEditing ? (
-                                        <Input className="h-9 bg-black/50 text-white border-white/20 text-sm" value={setor} onChange={e => setSetor(e.target.value)} placeholder="Ex: A" />
+                                        <Input className="h-12 bg-black/50 text-white border-white/20 text-base" value={setor} onChange={e => setSetor(e.target.value)} placeholder="Ex: A" />
                                     ) : (
-                                        <div className="text-base text-gray-300 font-medium">{setor || "--"}</div>
+                                        <div className="text-lg text-gray-300 font-medium">{setor || "--"}</div>
                                     )}
                                 </div>
-                                <div className="space-y-1">
-                                    <Label className="text-xs text-gray-500 uppercase">Lote Geo</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-sm text-gray-400 uppercase">Lote Geo</Label>
                                     {isEditing ? (
-                                        <Input className="h-9 bg-black/50 text-white border-white/20 text-sm" value={loteGeo} onChange={e => setLoteGeo(e.target.value)} placeholder="000" />
+                                        <Input className="h-12 bg-black/50 text-white border-white/20 text-base" value={loteGeo} onChange={e => setLoteGeo(e.target.value)} placeholder="000" />
                                     ) : (
-                                        <div className="text-base text-gray-300 font-medium">{loteGeo || "--"}</div>
+                                        <div className="text-lg text-gray-300 font-medium">{loteGeo || "--"}</div>
                                     )}
                                 </div>
                             </div>

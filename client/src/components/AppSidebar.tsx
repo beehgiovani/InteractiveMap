@@ -16,7 +16,6 @@ import {
 import { 
   Map as MapIcon, 
   Search, 
-  Layers, 
   User,
   Calculator,
   ArrowRightCircle
@@ -28,7 +27,6 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Progress } from "./ui/progress";
 
 interface AppSidebarProps {
   lotsData: Map<string, LotInfo>;
@@ -38,6 +36,7 @@ interface AppSidebarProps {
   lastSaved: Date | null;
   highlightedLots: Lot[]; 
   onSetHighlightedLots: (lots: Lot[]) => void; 
+  onSetHighlightSource?: (source: 'search' | 'smart_calc' | null) => void;
   onOpenSmartCalc: () => void;
   selectedLot: Lot | null;
   isMobile?: boolean; // Mobile detection prop
@@ -51,14 +50,13 @@ export function AppSidebar({
   lastSaved,
   highlightedLots = [],
   onSetHighlightedLots,
+  onSetHighlightSource,
   onOpenSmartCalc,
   selectedLot,
   isMobile = false
 }: AppSidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<Lot[]>([]); 
-  const [importProgress, setImportProgress] = useState(0);
-  const [isImporting, setIsImporting] = useState(false);
   const [, setLocation] = useLocation();
 
   const handleLogout = () => {
@@ -80,6 +78,7 @@ export function AppSidebar({
       if (!searchTerm.trim()) {
           setSearchResults([]);
           onSetHighlightedLots([]); // Clear highlights when search is empty
+          onSetHighlightSource?.(null); // Clear highlight source
           return;
       }
       const terms = searchTerm.toLowerCase().split(' ').filter(t => t.length > 0);
@@ -95,8 +94,10 @@ export function AppSidebar({
           return terms.every(term => searchable.includes(term));
       });
 
+
       setSearchResults(results.slice(0, 50)); 
       onSetHighlightedLots(results); // Highlight ALL matches on the map
+      onSetHighlightSource?.(results.length > 0 ? 'search' : null); // Set source to 'search' if results found
   }, [searchTerm, manualLots]);
 
   // --- GENERAL MAP INFO ---
@@ -231,12 +232,12 @@ export function AppSidebar({
         <SidebarGroup className="shrink-0 relative overflow-visible z-50">
             <div className="px-4 pb-2 relative">
                 <div className="relative z-20">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={16} />
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10 ${isMobile ? 'size-5' : 'size-4'}`} />
                     <Input 
                         placeholder="Buscar Lote (Ex: Q15 L10)..." 
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        className="pl-9 bg-black/50 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/5 focus:border-blue-500/50 transition-all font-medium relative z-10"
+                        className={`${isMobile ? 'h-14 text-base pl-11' : 'h-10 pl-9'} bg-black/50 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/5 focus:border-blue-500/50 transition-all font-medium relative z-10`}
                     />
                 </div>
                 
@@ -265,20 +266,20 @@ export function AppSidebar({
                                                 onSelectLot(lot);
                                                 setSearchTerm(""); 
                                             }}
-                                            className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-blue-600/20 border border-transparent hover:border-blue-500/30 transition-all group flex items-center justify-between animate-in fade-in slide-in-from-bottom-2"
+                                            className={`w-full text-left ${isMobile ? 'p-4 min-h-[56px]' : 'p-3'} rounded-xl bg-white/5 hover:bg-blue-600/20 border border-transparent hover:border-blue-500/30 transition-all group flex items-center justify-between animate-in fade-in slide-in-from-bottom-2`}
                                             style={{ animationDelay: `${index * 50}ms` }}
                                         >
                                             <div className="flex flex-col gap-0.5">
                                                 <div className="flex items-baseline gap-2">
-                                                    <span className="font-black text-lg text-white group-hover:text-blue-200 tracking-tight">Lote {lot.lote}</span>
+                                                    <span className={`font-black ${isMobile ? 'text-xl' : 'text-lg'} text-white group-hover:text-blue-200 tracking-tight`}>Lote {lot.lote}</span>
                                                 </div>
-                                                <div className="flex items-center gap-1.5 text-gray-400 text-[10px] lowercase">
+                                                <div className={`flex items-center gap-1.5 text-gray-400 ${isMobile ? 'text-xs' : 'text-[10px]'} lowercase`}>
                                                     <span className="bg-white/10 px-1 py-0.5 rounded text-gray-300 uppercase font-bold tracking-wider">Q{lot.quadra}</span>
                                                     <span>quadra {lot.quadra}</span>
                                                 </div>
                                             </div>
-                                            <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-blue-500/20 flex items-center justify-center transition-colors">
-                                                <ArrowRightCircle size={16} className="text-gray-500 group-hover:text-blue-400 -rotate-45 group-hover:rotate-0 transition-all duration-300" />
+                                            <div className={`${isMobile ? 'w-10 h-10' : 'w-8 h-8'} rounded-full bg-white/5 group-hover:bg-blue-500/20 flex items-center justify-center transition-colors`}>
+                                                <ArrowRightCircle size={isMobile ? 20 : 16} className="text-gray-500 group-hover:text-blue-400 -rotate-45 group-hover:rotate-0 transition-all duration-300" />
                                             </div>
                                         </button>
                                     ))}
@@ -325,74 +326,6 @@ export function AppSidebar({
                 <Search size={isMobile ? 20 : 16} className="shrink-0" />
                 <span>Busca Smart</span>
             </Button>
-            
-            <div className="relative">
-                <input 
-                    type="file" 
-                    accept=".json"
-                    className="hidden"
-                    id="import-json-trigger"
-                    onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        
-                        // Clear value so same file can be selected again
-                        e.target.value = '';
-                        
-                        const confirmImport = confirm(`Importar dados de "${file.name}"? Isso atualizará lotes existentes.`);
-                        if (!confirmImport) return;
-
-                        try {
-                            setIsImporting(true);
-                            setImportProgress(0);
-                            
-                            const { importLotData } = await import("@/lib/dataImport"); // Dynamic import
-                            const text = await file.text();
-                            const json = JSON.parse(text);
-                            
-                            if (!Array.isArray(json)) throw new Error("O arquivo deve conter uma lista JSON.");
-                            
-                            const res = await importLotData(json, (current, total) => {
-                                const pct = Math.round((current / total) * 100);
-                                setImportProgress(pct);
-                            });
-
-                            if (res.errors > 0) {
-                                console.warn("Import warning:", res.details);
-                                toast.warning(`Importado: ${res.processed} | Alterações: ${res.processed} | Sem mudanças: ${res.skipped} | Erros: ${res.errors}.`);
-                            } else {
-                                toast.success(`Sucesso! ${res.processed} lotes atualizados. ${res.skipped} sem alterações.`);
-                            }
-                            
-                        } catch (err: any) {
-                            console.error(err);
-                            toast.error(err.message);
-                        } finally {
-                            setIsImporting(false);
-                            setImportProgress(0);
-                        }
-                    }}
-                />
-                
-                {isImporting ? (
-                     <div className="w-full bg-emerald-900/10 border border-emerald-500/20 mb-3 p-3 rounded-md">
-                         <div className="flex justify-between items-center mb-2">
-                             <span className="text-[10px] uppercase text-emerald-400 font-bold tracking-wider">Importando...</span>
-                             <span className="text-xs text-white font-mono">{importProgress}%</span>
-                         </div>
-                         <Progress value={importProgress} className="h-1 bg-emerald-900/50" />
-                     </div>
-                ) : (
-                    <Button 
-                        variant="ghost"
-                        className={`w-full bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-600/20 mb-3 justify-start gap-2 h-auto whitespace-normal text-left ${buttonSizeClasses}`}
-                        onClick={() => document.getElementById('import-json-trigger')?.click()}
-                    >
-                        <Layers size={isMobile ? 20 : 16} className="shrink-0" />
-                        <span>Importar Dados</span>
-                    </Button>
-                )}
-            </div>
           </SidebarGroupContent>
         </SidebarGroup>
 
