@@ -6,6 +6,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login"; // Import Login
+import MobileHome from "@/pages/MobileHome"; // Import MobileHome
+import LeafletTest from "@/pages/LeafletTest"; //Import LeafletTest
 import { auth } from "@/lib/auth"; // Import auth utility
 import { useLocation } from "wouter";
 import { useEffect } from "react";
@@ -32,6 +34,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/mobile" component={MobileHome} />
+      <Route path="/leaflet" component={LeafletTest} />
       <Route path="/">
         <ProtectedRoute component={Home} />
       </Route>

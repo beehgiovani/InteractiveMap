@@ -1,9 +1,9 @@
-
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Lot, LotInfo } from "@/types";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -15,52 +15,50 @@ import {
 } from "@/components/ui/sidebar";
 import { 
   Map as MapIcon, 
-  Home as HomeIcon, 
   Search, 
   Layers, 
-  Info, 
-  Edit2, 
-  Save, 
-  X,
-  FileText,
-  DollarSign,
   User,
-  Ruler,
-  Phone,
-  Image as ImageIcon,
-  Link as LinkIcon,
-  Trash2,
-  CloudUpload,
+  Calculator,
   ArrowRightCircle
 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 import { syncLotsToFirestore } from "@/lib/firestoreSync";
-import { uploadImageToImgBB } from "@/lib/imgbb";
-import { uploadToCloudinary } from "@/lib/cloudinary";
-import { auth } from "@/lib/auth"; // Import auth
-import { useLocation } from "wouter"; // Import location for redirect
+import { auth } from "@/lib/auth"; 
+import { useLocation } from "wouter"; 
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Separator } from "./ui/separator";
+import { Progress } from "./ui/progress";
 
 interface AppSidebarProps {
-  selectedLot: Lot | null;
-  onCloseLot: () => void;
-  onSaveLot: (info: LotInfo) => void;
   lotsData: Map<string, LotInfo>;
   manualLots: Lot[];
-  onSelectLot: (lot: Lot) => void;
+  onSelectLot: (lot: Lot | null) => void;
   onExportBackup: () => void;
   lastSaved: Date | null;
+  highlightedLots: Lot[]; 
+  onSetHighlightedLots: (lots: Lot[]) => void; 
+  onOpenSmartCalc: () => void;
+  selectedLot: Lot | null;
+  isMobile?: boolean; // Mobile detection prop
 }
 
-export function AppSidebar({ selectedLot, onCloseLot, onSaveLot, lotsData, manualLots, onSelectLot, onExportBackup, lastSaved }: AppSidebarProps) {
-  // Lot Inspector State (Similar to LotFolder)
-  const [isEditing, setIsEditing] = useState(false);
+export function AppSidebar({
+  lotsData = new Map(),
+  manualLots = [],
+  onSelectLot,
+  onExportBackup,
+  lastSaved,
+  highlightedLots = [],
+  onSetHighlightedLots,
+  onOpenSmartCalc,
+  selectedLot,
+  isMobile = false
+}: AppSidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<Lot[]>([]); 
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [isImporting, setIsImporting] = useState(false);
   const [, setLocation] = useLocation();
 
   const handleLogout = () => {
@@ -77,357 +75,146 @@ export function AppSidebar({ selectedLot, onCloseLot, onSaveLot, lotsData, manua
     }
   };
 
-  const handleSync = async () => {
-      if (!manualLots.length) return;
-      if (!confirm("Isso fará o upload dos dados locais para a nuvem. Continuar?")) return;
-      
-      setIsSyncing(true);
-      try {
-          await syncLotsToFirestore(manualLots, lotsData);
-          alert("Sincronização concluída com sucesso!");
-      } catch (error) {
-          console.error("Sync failed:", error);
-          alert("Erro ao sincronizar. Verifique o console.");
-      } finally {
-          setIsSyncing(false);
-      }
-  };
-
-  const [notes, setNotes] = useState("");
-  const [documentation, setDocumentation] = useState("");
-  const [owner, setOwner] = useState("");
-  const [ownerContact, setOwnerContact] = useState(""); // New
-  const [price, setPrice] = useState("");
-  const [area, setArea] = useState("");
-  const [photos, setPhotos] = useState<string[]>([]); // New
-  const [documents, setDocuments] = useState<{name: string, url: string}[]>([]); // New
-
-  // Sync state when lot changes
-  useEffect(() => {
-    if (selectedLot) {
-      setNotes(selectedLot.info.notes || "");
-      setDocumentation(selectedLot.info.documentation || "");
-      setOwner(selectedLot.info.owner || "");
-      setOwnerContact(selectedLot.info.ownerContact || "");
-      setPrice(selectedLot.info.price?.toString() || "");
-      setArea(selectedLot.info.area?.toString() || "");
-      setPhotos(selectedLot.info.photos || []);
-      setDocuments(selectedLot.info.documents || []);
-      setDocuments(selectedLot.info.documents || []);
-      setIsEditing(false);
-    }
-  }, [selectedLot]);
-
   // Search Logic
-  useEffect(() => {
+  React.useEffect(() => {
       if (!searchTerm.trim()) {
           setSearchResults([]);
+          onSetHighlightedLots([]); // Clear highlights when search is empty
           return;
       }
-      const term = searchTerm.toLowerCase();
-      const results = manualLots.filter(l => 
-          l.lote.toLowerCase().includes(term) || 
-          l.quadra.toLowerCase().includes(term) ||
-          `Q${l.quadra} L${l.lote}`.toLowerCase().includes(term)
-      );
-      setSearchResults(results.slice(0, 50)); // Limit to 50
+      const terms = searchTerm.toLowerCase().split(' ').filter(t => t.length > 0);
+      
+      const results = manualLots.filter(l => {
+          const info = lotsData.get(l.id) || l.info;
+          const owner = info.owner?.toLowerCase() || '';
+          const aliases = info.aliases?.join(' ').toLowerCase() || '';
+          const displayId = info.displayId?.toLowerCase() || '';
+          // const notes = info.notes?.toLowerCase() || ''; // Notes excluded from search as per request
+          
+          const searchable = `quadra ${l.quadra} lote ${l.lote} q${l.quadra} l${l.lote} ${l.quadra} ${l.lote} ${owner} ${aliases} ${displayId}`;
+          return terms.every(term => searchable.includes(term));
+      });
+
+      setSearchResults(results.slice(0, 50)); 
+      onSetHighlightedLots(results); // Highlight ALL matches on the map
   }, [searchTerm, manualLots]);
 
-  const handleSave = () => {
-    if (!selectedLot) return;
+  // --- GENERAL MAP INFO ---
+  const uniqueQuadras = new Set(manualLots.map(l => l.quadra)).size;
+  const totalLotesCount = manualLots.length;
+  const stats = {
+      totalQuadras: uniqueQuadras > 0 ? uniqueQuadras : "-", 
+      totalLotes: totalLotesCount > 0 ? totalLotesCount : "-"
+  };
+  const notesCount = Array.from(lotsData.values()).filter(l => (l.notes || "").length > 0).length;
+
+  // On DESKTOP: Show quadra details when a lot is selected
+  // On MOBILE: Skip quadra details (tooltip already shows this info)
+  if (selectedLot && !isMobile) {
+    // Show Quadra Info for the selected lot
+    const quadraId = selectedLot.quadra;
+    const quadraLots = manualLots.filter(l => l.quadra === quadraId);
     
-    const updatedInfo: LotInfo = {
-      ...selectedLot.info,
-      notes,
-      documentation,
-      owner,
-      ownerContact,
-      price: price ? Number(price) : undefined,
-      area: area ? Number(area) : undefined,
-      photos,
-      documents,
-      updatedAt: new Date(),
+    // Status Logic Helper
+    const getLotStatus = (lot: Lot) => {
+        const info = lotsData.get(lot.id) || lot.info;
+        if (info?.isAvailable) return 'disponivel';
+        if (info?.status === 'ocupado' || info?.status === 'vendido') return 'ocupado';
+        if (info?.status === 'livre' || info?.status === 'reservado') return 'livre';
+        return 'neutro';
     };
-    onSaveLot(updatedInfo);
-    setIsEditing(false);
-  };
 
-  const handleAddPhoto = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
+    const totalLots = quadraLots.length;
+    const available = quadraLots.filter(l => getLotStatus(l) === 'disponivel').length;
+    const ocupado = quadraLots.filter(l => getLotStatus(l) === 'ocupado').length;
+    const livre = quadraLots.filter(l => getLotStatus(l) === 'livre').length;
+    
+    // Sort lots numerically
+    const sortedLots = [...quadraLots].sort((a, b) => {
+        const nA = parseInt(a.lote.replace(/\D/g, '')) || 0;
+        const nB = parseInt(b.lote.replace(/\D/g, '')) || 0;
+        return nA - nB;
+    });
 
-        setIsUploading(true);
-        const toastId = toast.loading("Enviando imagem para ImgBB...");
-        
-        try {
-            const url = await uploadImageToImgBB(file);
-            
-            // Auto-save logic
-            const newPhotos = [...photos, url];
-            setPhotos(newPhotos);
-            
-            if (selectedLot) {
-                const updatedInfo: LotInfo = {
-                    ...selectedLot.info,
-                    notes,
-                    documentation,
-                    owner,
-                    ownerContact,
-                    price: price ? Number(price) : undefined,
-                    area: area ? Number(area) : undefined,
-                    photos: newPhotos, // Use the new array
-                    documents,
-                    updatedAt: new Date(),
-                };
-                onSaveLot(updatedInfo); // Persist immediately
-            }
+    // Mobile-specific styling with MAXIMUM contrast
+    const sidebarClasses = isMobile
+      ? "border-r-4 border-cyan-400 bg-black backdrop-blur-xl text-white shadow-[0_0_60px_rgba(6,182,212,0.8)]"
+      : "border-r border-white/20 bg-zinc-950/95 backdrop-blur-xl text-white shadow-xl";
 
-            toast.success("Imagem enviada e salva com sucesso!", { id: toastId });
-        } catch (error: any) {
-            console.error(error);
-            toast.error(`Erro: ${error.message}`, { id: toastId });
-        } finally {
-            setIsUploading(false);
-        }
-    };
-    input.click();
-  };
-
-  const handleAddDocument = () => {
-      const name = prompt("Nome do Documento (Ex: Matrícula):");
-      if (!name) return;
-      
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.txt'; 
-      input.onchange = async (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-
-          setIsUploading(true);
-          const toastId = toast.loading("Enviando documento para Cloudinary...");
-
-          try {
-              const url = await uploadToCloudinary(file);
-              
-              // Auto-save logic
-              const newDocs = [...documents, { name, url }];
-              setDocuments(newDocs);
-
-              if (selectedLot) {
-                  const updatedInfo: LotInfo = {
-                      ...selectedLot.info,
-                      notes,
-                      documentation,
-                      owner,
-                      ownerContact,
-                      price: price ? Number(price) : undefined,
-                      area: area ? Number(area) : undefined,
-                      photos, 
-                      documents: newDocs, 
-                      updatedAt: new Date(),
-                  };
-                  onSaveLot(updatedInfo); 
-              }
-
-              toast.success("Documento enviado e salvo com sucesso!", { id: toastId });
-          } catch (error: any) {
-              console.error(error);
-              toast.error(`Erro: ${error.message}`, { id: toastId });
-          } finally {
-              setIsUploading(false);
-          }
-      };
-      input.click();
-  };
-
-  if (selectedLot) {
     return (
-      <Sidebar className="border-r border-white/20 bg-zinc-950/95 backdrop-blur-xl text-white shadow-2xl">
-        <SidebarHeader className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 border-b border-white/10 p-6 relative overflow-hidden shrink-0">
-          <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]" />
-          <div className="flex items-center justify-between relative z-10">
+      <Sidebar className={sidebarClasses}>
+        <SidebarHeader className="bg-white/5 border-b border-white/10 p-6">
+          <div className="flex items-center justify-between">
              <div>
-                <h2 className="text-3xl font-bold text-white tracking-tight drop-shadow-md">Lote {selectedLot.lote}</h2>
-                <p className="text-blue-200 text-sm font-semibold tracking-wide mt-1">QUADRA {selectedLot.quadra}</p>
+                <h2 className="text-2xl font-bold text-white tracking-tight">Quadra {quadraId}</h2>
+                <p className="text-blue-200 text-xs font-semibold tracking-wide mt-1 uppercase">Informações da Quadra</p>
              </div>
-             <Button variant="ghost" size="icon" onClick={onCloseLot} className="text-blue-200 hover:bg-white/10 hover:text-white h-8 w-8 rounded-full transition-colors">
-                 <X size={20} />
+             <Button variant="ghost" size="icon" onClick={() => onSelectLot(null)} className="text-gray-400 hover:text-white">
+                 <ArrowRightCircle size={20} className="rotate-180" />
              </Button>
           </div>
         </SidebarHeader>
         
         <SidebarContent className="p-4 gap-6">
             
-            {/* Status Card */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 grid grid-cols-2 gap-4 relative overflow-hidden group hover:border-blue-500/30 transition-all duration-300">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                
-                <div className="relative z-10 flex flex-col">
-                    <span className="text-blue-200/70 text-[10px] uppercase tracking-widest font-semibold mb-1">Área Total</span>
-                    <div className="font-bold text-3xl text-white tracking-tighter shadow-black/50 drop-shadow-sm">
-                        {area || "-"} <span className="text-sm font-normal text-blue-200/50 align-baseline ml-0.5">m²</span>
-                    </div>
+                <div className="bg-green-500/10 border border-green-500/20 p-3 rounded-lg text-center flex flex-col justify-center min-w-[60px]">
+                    <div className="text-2xl font-bold text-green-400 leading-none mb-1">{available}</div>
+                    <div className="text-[10px] uppercase text-green-200/50 font-bold break-all">Disponíveis</div>
                 </div>
-                
-                <div className="relative z-10 flex flex-col border-l border-white/5 pl-4">
-                    <span className="text-blue-200/70 text-[10px] uppercase tracking-widest font-semibold mb-1">Valor Estimado</span>
-                    <div className="font-bold text-2xl text-emerald-400 tracking-tight shadow-black/50 drop-shadow-sm break-all">
-                        <span className="text-sm font-normal text-emerald-600/70 mr-0.5">R$</span>{price || "-"}
-                    </div>
+                <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-lg text-center flex flex-col justify-center min-w-[60px]">
+                    <div className="text-2xl font-bold text-red-400 leading-none mb-1">{ocupado}</div>
+                    <div className="text-[10px] uppercase text-red-200/50 font-bold break-all">Ocupados</div>
                 </div>
-            </div>
-
-            {/* Editing Controls */}
-            {!isEditing ? (
-                 <Button onClick={() => setIsEditing(true)} variant="outline" className="w-full bg-white/5 border-white/10 text-blue-200 hover:bg-blue-600 hover:text-white hover:border-blue-500/50 transition-all font-medium">
-                    <Edit2 size={16} className="mr-2"/> Editar Dados do Lote
-                 </Button>
-            ) : (
-                 <div className="flex gap-2 animate-in fade-in zoom-in-95 duration-200">
-                     <Button onClick={() => setIsEditing(false)} variant="ghost" className="flex-1 text-gray-400 hover:text-white hover:bg-white/10">Cancelar</Button>
-                     <Button onClick={handleSave} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 border border-blue-400/20">Salvar Alterações</Button>
-                 </div>
-            )}
-
-            <Separator />
-
-            {/* Detail Fields */}
-            <div className="space-y-6">
-                
-                <div className="space-y-3">
-                    <label className="text-xs font-bold text-blue-300/80 uppercase flex items-center gap-2">
-                        <User size={14} className="text-blue-500" /> Proprietário
-                    </label>
-                    <div className="bg-black/20 p-4 rounded-xl border border-white/5 space-y-2 backdrop-blur-sm">
-                        {isEditing ? (
-                            <>
-                                <Input placeholder="Nome do Proprietário" value={owner} onChange={e => setOwner(e.target.value)} className="bg-black/50 border-white/20 text-white placeholder:text-gray-500 focus:border-blue-500/50 focus:bg-black/70 transition-colors" />
-                                <div className="flex items-center gap-2">
-                                    <Phone size={16} className="text-gray-500" />
-                                    <Input placeholder="Contato / Telefone" value={ownerContact} onChange={e => setOwnerContact(e.target.value)} className="bg-black/50 border-white/20 text-white placeholder:text-gray-500 focus:border-blue-500/50 focus:bg-black/70 transition-colors" />
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="text-lg font-medium text-white tracking-tight">{owner || "Não informado"}</div>
-                                {ownerContact && (
-                                    <div className="text-sm text-gray-400 flex items-center gap-2">
-                                        <div className="p-1 bg-white/5 rounded-full"><Phone size={10} /></div> {ownerContact}
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg text-center flex flex-col justify-center min-w-[60px]">
+                    <div className="text-2xl font-bold text-yellow-400 leading-none mb-1">{livre}</div>
+                    <div className="text-[10px] uppercase text-yellow-200/50 font-bold break-all">Livres</div>
                 </div>
+           
 
-                {/* PHOTOS */}
-                <div className="space-y-3">
-                     <div className="flex justify-between items-center">
-                        <label className="text-xs font-bold text-blue-300/80 uppercase flex items-center gap-2">
-                            <ImageIcon size={14} className="text-blue-500" /> Galeria de Fotos
-                        </label>
-                        {isEditing && <Button size="sm" variant="ghost" className="h-6 text-[10px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 uppercase tracking-wider font-bold" onClick={handleAddPhoto}>+ Adicionar URL</Button>}
-                     </div>
-                     
-                     <div className="grid grid-cols-2 gap-3">
-                         {photos.length === 0 && !isEditing && <div className="col-span-2 text-center py-6 text-sm text-gray-500 bg-white/5 rounded-lg border border-white/5 border-dashed">Nenhuma foto disponível.</div>}
-                         {photos.map((url, i) => (
-                             <div key={i} className="relative aspect-video bg-black/40 rounded-lg overflow-hidden group border border-white/10 hover:border-blue-500/50 transition-colors shadow-sm">
-                                 <img src={url} alt={`Foto ${i}`} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                                 {isEditing && (
-                                     <button 
-                                        className="absolute top-1 right-1 bg-red-500/90 hover:bg-red-600 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
-                                        onClick={() => setPhotos(photos.filter((_, idx) => idx !== i))}
-                                    >
-                                         <X size={12} />
-                                     </button>
-                                 )}
-                             </div>
-                         ))}
-                     </div>
-                </div>
+            <Separator className="bg-white/10" />
 
-                {/* DOCUMENTS */}
-                <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                         <label className="text-xs font-bold text-blue-300/80 uppercase flex items-center gap-2">
-                            <FileText size={14} className="text-blue-500" /> Documentos & Links
-                        </label>
-                         {isEditing && <Button size="sm" variant="ghost" className="h-6 text-[10px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 uppercase tracking-wider font-bold" onClick={handleAddDocument}>+ Adicionar Link</Button>}
-                    </div>
-
-                    <div className="space-y-2">
-                        {documents.length === 0 && !isEditing && <div className="text-center py-4 text-sm text-gray-500 bg-white/5 rounded-lg border border-white/5 border-dashed">Nenhum documento.</div>}
-                        {documents.map((doc, i) => (
-                            <div key={i} className="flex items-center justify-between text-sm bg-white/5 hover:bg-white/10 p-3 rounded-lg border border-white/10 transition-colors group">
-                                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:text-blue-200 flex items-center gap-3 truncate font-medium">
-                                    <div className="p-1.5 bg-blue-500/20 rounded text-blue-400"><LinkIcon size={12} /></div> {doc.name}
-                                </a>
-                                {isEditing && (
-                                     <button onClick={() => setDocuments(documents.filter((_, idx) => idx !== i))} className="text-gray-500 hover:text-red-400 p-1 hover:bg-red-400/10 rounded transition-colors">
-                                         <Trash2 size={14} />
-                                     </button>
-                                )}
+            <div className="space-y-2">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Lotes na Quadra</h3>
+                <div className="grid grid-cols-4 gap-2">
+                    {sortedLots.map(l => {
+                         const status = getLotStatus(l);
+                         return (
+                            <div 
+                                key={l.id} 
+                                onClick={() => onSelectLot(l)}
+                                className={`
+                                    cursor-pointer rounded-md p-2 text-center text-xs font-bold border transition-all
+                                    flex items-center justify-center min-h-[36px] break-all leading-tight
+                                    ${selectedLot && l.id === selectedLot.id ? 'bg-blue-600 text-white border-blue-400 scale-105 shadow-lg' : 'bg-white/5 border-white/10 hover:bg-white/10 text-gray-300'}
+                                    ${selectedLot && status === 'ocupado' && l.id !== selectedLot.id ? 'opacity-50 text-red-300/50 border-red-500/10' : ''}
+                                    ${selectedLot && status === 'disponivel' && l.id !== selectedLot.id ? 'text-green-300/70 border-green-500/10' : ''}
+                                    ${selectedLot && status === 'livre' && l.id !== selectedLot.id ? 'text-yellow-300/70 border-yellow-500/10' : ''}
+                                `}
+                            >
+                                {l.lote}
                             </div>
-                        ))}
-                    </div>
+                        );
+                    })}
                 </div>
-
-
-                <div className="space-y-3">
-                    <label className="text-xs font-bold text-blue-300/80 uppercase flex items-center gap-2">
-                        <Info size={14} className="text-blue-500" /> Notas Internas
-                    </label>
-                     {isEditing ? (
-                        <textarea 
-                            className="w-full min-h-[120px] text-sm p-4 bg-black/50 border border-white/20 rounded-xl text-gray-100 placeholder:text-gray-500 focus:border-blue-500/50 focus:bg-black/70 outline-none resize-none transition-colors"
-                            value={notes} 
-                            onChange={e => setNotes(e.target.value)} 
-                            placeholder="Digite suas observações aqui..."
-                        />
-                    ) : (
-                        <div className="text-sm text-gray-300/90 whitespace-pre-wrap leading-relaxed p-4 bg-white/5 rounded-xl border border-white/5 font-light">
-                            {notes || <span className="text-gray-500 italic">Nenhuma anotação registrada para este lote.</span>}
-                        </div>
-                    )}
-                </div>
-                
-                 {isEditing && (
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
-                        <div className="space-y-1.5">
-                             <label className="text-[10px] uppercase font-bold text-gray-500">Preço (R$)</label>
-                             <Input type="number" value={price} onChange={e => setPrice(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-                        </div>
-                        <div className="space-y-1.5">
-                             <label className="text-[10px] uppercase font-bold text-gray-500">Área (m²)</label>
-                             <Input type="number" value={area} onChange={e => setArea(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-                        </div>
-                    </div>
-                )}
-
             </div>
+
         </SidebarContent>
       </Sidebar>
     );
   }
 
-  // --- GENERAL MAP INFO (No lot selected) ---
-  const uniqueQuadras = new Set(manualLots.map(l => l.quadra)).size;
-  const totalLotesCount = manualLots.length;
+  // Mobile-specific styling with MAXIMUM contrast and visibility
+  const sidebarClasses = isMobile
+    ? "border-r-4 border-cyan-400 bg-black backdrop-blur-xl text-white shadow-[0_0_60px_rgba(6,182,212,0.8)]"
+    : "border-r border-white/20 bg-zinc-950/95 backdrop-blur-xl text-white";
 
-  const stats = {
-      totalQuadras: uniqueQuadras > 0 ? uniqueQuadras : "-", 
-      totalLotes: totalLotesCount > 0 ? totalLotesCount : "-"
-  };
-  const notesCount = Array.from(lotsData.values()).filter(l => l.notes.length > 0).length;
+  // Button size classes for mobile touch optimization
+  const buttonSizeClasses = isMobile
+    ? "min-h-12 text-base px-4 py-3" // 48px height for touch
+    : "min-h-9 text-xs px-3 py-2";   // Original desktop
 
   return (
-    <Sidebar className="border-r border-white/20 bg-zinc-950/95 backdrop-blur-xl text-white">
+    <Sidebar className={sidebarClasses}>
       <SidebarHeader className="border-b border-white/10 px-6 py-8 relative overflow-hidden shrink-0">
          <div className="absolute inset-0 bg-gradient-to-b from-blue-900/10 to-transparent" />
         <h1 className="text-3xl font-black tracking-tight text-white mb-1 drop-shadow-lg">
@@ -435,57 +222,67 @@ export function AppSidebar({ selectedLot, onCloseLot, onSaveLot, lotsData, manua
         </h1>
         <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <p className="text-[10px] text-blue-200/60 font-mono tracking-[0.2em] uppercase">Sistema Inteligente v2.0</p>
+            <p className="text-[10px] text-blue-200/60 font-mono tracking-[0.2em] uppercase">Sistema Inteligente v2.1</p>
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="flex flex-col gap-6 p-2 pr-4 scrollbar-thin">
         {/* GLOBAL SEARCH */}
-        <SidebarGroup>
-            <div className="px-4 pb-2">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+        <SidebarGroup className="shrink-0 relative overflow-visible z-50">
+            <div className="px-4 pb-2 relative">
+                <div className="relative z-20">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={16} />
                     <Input 
                         placeholder="Buscar Lote (Ex: Q15 L10)..." 
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        className="pl-9 bg-black/50 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/5 transition-all font-medium"
+                        className="pl-9 bg-black/50 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/5 focus:border-blue-500/50 transition-all font-medium relative z-10"
                     />
                 </div>
                 
                 {/* SEARCH RESULTS */}
                 {searchTerm && (
-                    <div className="mt-2 bg-black/40 border border-white/10 rounded-xl overflow-hidden backdrop-blur-md shadow-2xl animate-in slide-in-from-top-2">
-                        <div className="px-3 py-2 bg-white/5 border-b border-white/10 text-[10px] font-bold text-gray-300 uppercase tracking-wider flex justify-between">
-                            <span>Resultados</span>
-                            <span>{searchResults.length} encontrados</span>
+                    <div className="absolute left-4 top-[calc(100%+0.5rem)] w-[calc(100%-2rem)] bg-zinc-950/95 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-xl shadow-2xl animate-in slide-in-from-top-2 duration-200 z-50 ring-1 ring-white/10">
+                        <div className="px-4 py-3 bg-white/5 border-b border-white/5 text-[10px] font-bold text-gray-400 uppercase tracking-widest flex justify-between items-center shrink-0">
+                            <span className="flex items-center gap-2">
+                                <Search size={10} className="text-blue-400" />
+                                Resultados
+                            </span>
+                            <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded text-[9px]">{searchResults.length}</span>
                         </div>
-                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
+                        <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-2 space-y-1">
                             {searchResults.length === 0 ? (
-                                <div className="p-4 text-center text-sm text-gray-500 italic">
-                                    Nenhum lote encontrado.
+                                <div className="p-8 text-center text-sm text-gray-500 italic flex flex-col items-center gap-2">
+                                    <Search size={24} className="opacity-20" />
+                                    <span>Nenhum lote encontrado.</span>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-white/5">
-                                    {searchResults.map(lot => (
+                                <>
+                                    {searchResults.map((lot, index) => (
                                         <button
                                             key={lot.id}
                                             onClick={() => {
                                                 onSelectLot(lot);
-                                                setSearchTerm(""); // Clear search on select
+                                                setSearchTerm(""); 
                                             }}
-                                            className="w-full text-left px-4 py-3 hover:bg-blue-600/20 hover:text-white text-gray-300 transition-colors flex items-center justify-between group"
+                                            className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-blue-600/20 border border-transparent hover:border-blue-500/30 transition-all group flex items-center justify-between animate-in fade-in slide-in-from-bottom-2"
+                                            style={{ animationDelay: `${index * 50}ms` }}
                                         >
-                                            <div>
-                                                <span className="font-bold text-blue-400">Lote {lot.lote}</span>
-                                                <span className="text-gray-500 text-xs ml-2">Quadra {lot.quadra}</span>
+                                            <div className="flex flex-col gap-0.5">
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="font-black text-lg text-white group-hover:text-blue-200 tracking-tight">Lote {lot.lote}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-gray-400 text-[10px] lowercase">
+                                                    <span className="bg-white/10 px-1 py-0.5 rounded text-gray-300 uppercase font-bold tracking-wider">Q{lot.quadra}</span>
+                                                    <span>quadra {lot.quadra}</span>
+                                                </div>
                                             </div>
-                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <ArrowRightCircle size={14} className="text-blue-400" />
+                                            <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-blue-500/20 flex items-center justify-center transition-colors">
+                                                <ArrowRightCircle size={16} className="text-gray-500 group-hover:text-blue-400 -rotate-45 group-hover:rotate-0 transition-all duration-300" />
                                             </div>
                                         </button>
                                     ))}
-                                </div>
+                                </>
                             )}
                         </div>
                     </div>
@@ -497,93 +294,161 @@ export function AppSidebar({ selectedLot, onCloseLot, onSaveLot, lotsData, manua
           <SidebarGroupLabel>Visão Geral</SidebarGroupLabel>
           <SidebarGroupContent>
             <div className="grid grid-cols-2 gap-3 p-1">
-                <div className="bg-white/5 p-5 rounded-2xl border border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group backdrop-blur-sm cursor-default">
-                    <div className="text-4xl font-black text-blue-400 group-hover:scale-110 transition-transform origin-left tracking-tighter shadow-blue-900/50 drop-shadow-lg">{stats.totalQuadras}</div>
-                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-2 group-hover:text-blue-200 transition-colors">Quadras</div>
+                <div className="bg-gradient-to-br from-blue-900/40 to-black/40 p-5 rounded-2xl border border-blue-500/20 hover:border-blue-500/40 transition-all group backdrop-blur-sm cursor-default relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/10 blur-2xl rounded-full -mr-8 -mt-8 pointer-events-none" />
+                    <div className="text-4xl font-black text-white group-hover:scale-110 transition-transform origin-left tracking-tighter drop-shadow-lg z-10 relative">{stats.totalQuadras}</div>
+                    <div className="text-[10px] text-blue-200/70 font-bold uppercase tracking-widest mt-2 group-hover:text-blue-200 transition-colors z-10 relative">Quadras</div>
                 </div>
-                 <div className="bg-white/5 p-5 rounded-2xl border border-white/10 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all group backdrop-blur-sm cursor-default">
-                    <div className="text-4xl font-black text-cyan-400 group-hover:scale-110 transition-transform origin-left tracking-tighter shadow-cyan-900/50 drop-shadow-lg">{stats.totalLotes}</div>
-                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-2 group-hover:text-cyan-200 transition-colors">Lotes</div>
+                 <div className="bg-gradient-to-br from-cyan-900/40 to-black/40 p-5 rounded-2xl border border-cyan-500/20 hover:border-cyan-500/40 transition-all group backdrop-blur-sm cursor-default relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/10 blur-2xl rounded-full -mr-8 -mt-8 pointer-events-none" />
+                    <div className="text-4xl font-black text-white group-hover:scale-110 transition-transform origin-left tracking-tighter drop-shadow-lg z-10 relative">{stats.totalLotes}</div>
+                    <div className="text-[10px] text-cyan-200/70 font-bold uppercase tracking-widest mt-2 group-hover:text-cyan-200 transition-colors z-10 relative">Lotes</div>
                 </div>
             </div>
             <div className="px-1 mt-3">
-                <div className="bg-gradient-to-r from-yellow-500/10 to-amber-500/5 p-5 rounded-2xl border border-yellow-500/20 flex items-center justify-between hover:border-yellow-500/40 transition-colors cursor-default">
-                     <span className="text-[10px] text-yellow-500/90 font-bold uppercase tracking-widest">Lotes com<br/>Anotações</span>
-                     <span className="text-3xl font-black text-yellow-400 tracking-tighter">{notesCount}</span>
+                <div className="bg-gradient-to-r from-amber-500/10 to-orange-900/20 p-5 rounded-2xl border border-amber-500/20 flex items-center justify-between hover:border-amber-500/40 transition-all cursor-default relative overflow-hidden group">
+                     <div className="absolute inset-0 bg-amber-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                     <span className="text-[10px] text-amber-200/80 font-bold uppercase tracking-widest z-10">Lotes com<br/>Anotações</span>
+                     <span className="text-3xl font-black text-amber-500 tracking-tighter z-10 group-hover:scale-110 transition-transform">{notesCount}</span>
                 </div>
             </div>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Camadas</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive>
-                  <MapIcon />
-                  <span>Mapa Base</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton>
-                  <Layers />
-                  <span>Satélite (Em breve)</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-         <SidebarGroup>
-          <SidebarGroupLabel>Legenda</SidebarGroupLabel>
-          <SidebarGroupContent className="px-2 space-y-3">
-             <div className="flex items-center gap-3 text-sm text-gray-300">
-                <div className="w-5 h-5 rounded-md bg-white border border-gray-300 shadow-sm"></div> <span className="font-medium">Lote Disponível</span>
-             </div>
-             <div className="flex items-center gap-3 text-sm text-gray-300">
-                <div className="w-5 h-5 rounded-md bg-emerald-500/20 border border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]"></div> <span className="font-medium">Área Especial</span>
-             </div>
-             <div className="flex items-center gap-3 text-sm text-gray-300">
-                <div className="w-5 h-5 rounded-md bg-yellow-500/20 border border-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.3)]"></div> <span className="font-medium">Com Anotação</span>
-             </div>
-             <div className="flex items-center gap-3 text-sm text-gray-300">
-                <div className="w-5 h-5 rounded-md bg-blue-500 border border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.5)]"></div> <span className="font-medium">Selecionado</span>
-             </div>
-          </SidebarGroupContent>
-
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        <SidebarSeparator className="bg-white/10" />
-
-        <div className="p-4 space-y-3 mt-auto">
+        <SidebarGroup className="mt-2">
+          <SidebarGroupLabel className="mb-2">Ferramentas</SidebarGroupLabel>
+          <SidebarGroupContent className="px-2">
             <Button 
-              variant="outline" 
-              className="w-full justify-start text-xs border-white/10 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-all h-9"
-              onClick={handleChangePassword}
+                className={`w-full bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-600/20 mb-3 justify-start gap-2 h-auto whitespace-normal text-left ${buttonSizeClasses}`}
+                onClick={onOpenSmartCalc}
             >
-              <div className="p-1 bg-white/10 rounded mr-2"><User size={12} /></div>
-              Trocar Senha
-            </Button>
-            <Button 
-              variant="destructive" 
-              className="w-full justify-start text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 hover:text-red-300 h-9 transition-all"
-              onClick={handleLogout}
-            >
-              <div className="p-1 bg-red-500/20 rounded mr-2"><div className="w-2 h-2 rounded-full bg-red-500 box-shadow-glow" /></div>
-              Sair do Sistema
+                <Search size={isMobile ? 20 : 16} className="shrink-0" />
+                <span>Busca Smart</span>
             </Button>
             
-             <div className="text-[10px] text-center text-gray-600 mt-4 font-mono">
-                v2.0.1 • SECURE MODE
+            <div className="relative">
+                <input 
+                    type="file" 
+                    accept=".json"
+                    className="hidden"
+                    id="import-json-trigger"
+                    onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        
+                        // Clear value so same file can be selected again
+                        e.target.value = '';
+                        
+                        const confirmImport = confirm(`Importar dados de "${file.name}"? Isso atualizará lotes existentes.`);
+                        if (!confirmImport) return;
+
+                        try {
+                            setIsImporting(true);
+                            setImportProgress(0);
+                            
+                            const { importLotData } = await import("@/lib/dataImport"); // Dynamic import
+                            const text = await file.text();
+                            const json = JSON.parse(text);
+                            
+                            if (!Array.isArray(json)) throw new Error("O arquivo deve conter uma lista JSON.");
+                            
+                            const res = await importLotData(json, (current, total) => {
+                                const pct = Math.round((current / total) * 100);
+                                setImportProgress(pct);
+                            });
+
+                            if (res.errors > 0) {
+                                console.warn("Import warning:", res.details);
+                                toast.warning(`Importado: ${res.processed} | Alterações: ${res.processed} | Sem mudanças: ${res.skipped} | Erros: ${res.errors}.`);
+                            } else {
+                                toast.success(`Sucesso! ${res.processed} lotes atualizados. ${res.skipped} sem alterações.`);
+                            }
+                            
+                        } catch (err: any) {
+                            console.error(err);
+                            toast.error(err.message);
+                        } finally {
+                            setIsImporting(false);
+                            setImportProgress(0);
+                        }
+                    }}
+                />
+                
+                {isImporting ? (
+                     <div className="w-full bg-emerald-900/10 border border-emerald-500/20 mb-3 p-3 rounded-md">
+                         <div className="flex justify-between items-center mb-2">
+                             <span className="text-[10px] uppercase text-emerald-400 font-bold tracking-wider">Importando...</span>
+                             <span className="text-xs text-white font-mono">{importProgress}%</span>
+                         </div>
+                         <Progress value={importProgress} className="h-1 bg-emerald-900/50" />
+                     </div>
+                ) : (
+                    <Button 
+                        variant="ghost"
+                        className={`w-full bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-600/20 mb-3 justify-start gap-2 h-auto whitespace-normal text-left ${buttonSizeClasses}`}
+                        onClick={() => document.getElementById('import-json-trigger')?.click()}
+                    >
+                        <Layers size={isMobile ? 20 : 16} className="shrink-0" />
+                        <span>Importar Dados</span>
+                    </Button>
+                )}
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+
+
+        <SidebarGroup className="mt-auto pt-4 border-t border-white/5 mx-2">
+          <SidebarGroupLabel className="mb-3 text-xs font-bold text-gray-500 uppercase tracking-widest">Legenda do Mapa</SidebarGroupLabel>
+          <SidebarGroupContent>
+             <div className="grid grid-cols-2 gap-3 pb-2">
+                {/* Disponível - Green */}
+                <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/10 p-3 rounded-xl hover:bg-green-500/10 transition-colors">
+                   <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse"></div> 
+                   <span className="font-bold text-[10px] text-green-200 uppercase tracking-widest">Disponível</span>
+                </div>
+                
+                {/* Ocupado - Red */}
+                <div className="flex items-center gap-3 bg-red-500/5 border border-red-500/10 p-3 rounded-xl hover:bg-red-500/10 transition-colors">
+                   <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div> 
+                   <span className="font-bold text-[10px] text-red-200 uppercase tracking-widest">Ocupado</span>
+                </div>
+
+                {/* Livre - Yellow */}
+                <div className="flex items-center gap-3 bg-yellow-500/5 border border-yellow-500/10 p-3 rounded-xl hover:bg-yellow-500/10 transition-colors">
+                   <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]"></div> 
+                   <span className="font-bold text-[10px] text-yellow-200 uppercase tracking-widest">Livre</span>
+                </div>
+
+                {/* Neutro - Gray */}
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 p-3 rounded-xl hover:bg-white/10 transition-colors">
+                   <div className="w-2.5 h-2.5 rounded-full bg-gray-500"></div> 
+                   <span className="font-bold text-[10px] text-gray-300 uppercase tracking-widest">Neutro</span>
+                </div>
              </div>
-        </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
       </SidebarContent>
+
+      <SidebarFooter className="p-4 space-y-3 border-t border-white/10 bg-zinc-950/50">
+          <Button 
+            variant="outline" 
+            className={`w-full justify-start border-white/10 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-all h-auto whitespace-normal ${buttonSizeClasses}`}
+            onClick={handleChangePassword}
+          >
+            <div className="p-1 bg-white/10 rounded mr-2 shrink-0"><User size={isMobile ? 16 : 12} /></div>
+            Trocar Senha
+          </Button>
+          <Button 
+            variant="destructive" 
+            className={`w-full justify-start bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 hover:text-red-300 h-auto whitespace-normal transition-all ${buttonSizeClasses}`}
+            onClick={handleLogout}
+          >
+            <div className="p-1 bg-red-500/20 rounded mr-2"><div className="w-2 h-2 rounded-full bg-red-500 box-shadow-glow" /></div>
+            Sair do Sistema
+          </Button>
+      </SidebarFooter>
     </Sidebar>
   );
 }

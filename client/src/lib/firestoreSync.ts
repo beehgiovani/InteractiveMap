@@ -3,19 +3,38 @@ import { collection, writeBatch, doc, getDoc, setDoc } from "firebase/firestore"
 import { Lot, LotInfo } from "../../../shared/types";
 
 // Helper to batch writes (Firestore has a limit of 500 writes per batch)
-export const syncLotsToFirestore = async (lots: Lot[], lotsData: Map<string, LotInfo>) => {
+export const syncLotsToFirestore = async (lots: Lot[], lotsData: Map<string, LotInfo>, onlyIds?: string[], deletedIds?: string[]) => {
     const batchSize = 450; 
-    const lotsCollection = collection(db, "lots");
-    const metadataCollection = collection(db, "metadata");
+    const lotsCollection = collection(db, "lots_v2");
+    const metadataCollection = collection(db, "metadata_v2");
     
     let batch = writeBatch(db);
     let count = 0;
     let totalBatches = 0;
 
-    console.log(`Starting sync of ${lots.length} lots...`);
+    // 1. Process Deletions First
+    if (deletedIds && deletedIds.length > 0) {
+        console.log(`Processing ${deletedIds.length} deletions...`);
+        for (const id of deletedIds) {
+            const lotRef = doc(lotsCollection, id);
+            batch.delete(lotRef);
+            count++;
+            if (count >= batchSize) {
+                await batch.commit();
+                batch = writeBatch(db);
+                count = 0;
+            }
+        }
+    }
 
-    // 1. Sync Geometry (Lots)
-    for (const lot of lots) {
+    const lotsToSync = onlyIds 
+        ? lots.filter(l => onlyIds.includes(l.id))
+        : lots;
+
+    console.log(`Starting sync of ${lotsToSync.length} lots...`);
+
+    // 2. Sync Geometry (Lots)
+    for (const lot of lotsToSync) {
         if (!lot.id) continue;
         
         const lotRef = doc(lotsCollection, lot.id);
@@ -54,6 +73,18 @@ export const syncLotsToFirestore = async (lots: Lot[], lotsData: Map<string, Lot
             area: info.area || null,
             photos: info.photos || [],
             documents: info.documents || [],
+            website: info.website || "",
+            testada: info.testada || null,
+            zona: info.zona || "",
+            setor: info.setor || "",
+            loteGeo: info.loteGeo || "",
+            ownerCpf: info.ownerCpf || "",
+            status: info.status || "neutro",
+            isAvailable: info.isAvailable || false,
+            aliases: info.aliases || [],
+            displayId: info.displayId || "",
+            history: info.history || null,
+
             createdAt: info.createdAt ? new Date(info.createdAt).toISOString() : new Date().toISOString(),
             updatedAt: new Date().toISOString(),
 
@@ -81,7 +112,7 @@ export const syncLotsToFirestore = async (lots: Lot[], lotsData: Map<string, Lot
         console.log(`Final batch committed.`);
     }
 
-    // 2. Sync Metadata (e.g. timestamp)
+    // 3. Sync Metadata (e.g. timestamp)
     await setDoc(doc(metadataCollection, "map_state"), {
         totalLots: lots.length,
         lastUpdated: new Date().toISOString()
@@ -96,11 +127,11 @@ export const fetchLotsFromFirestore = async (
 ): Promise<{ locLots: Lot[], infoMap: Map<string, LotInfo> }> => {
     
     // 1. Get total count first
-    const metadataRef = doc(db, "metadata", "map_state");
+    const metadataRef = doc(db, "metadata_v2", "map_state");
     const metadataSnap = await getDoc(metadataRef);
     const totalDocs = metadataSnap.exists() ? metadataSnap.data().totalLots : 2500; // Est.
 
-    const lotsCollection = collection(db, "lots");
+    const lotsCollection = collection(db, "lots_v2");
     // Firestore SDK doesn't support "get all" efficiently without cost. 
     // We will get all docs in one shot (standard reads).
     
@@ -141,6 +172,18 @@ export const fetchLotsFromFirestore = async (
                 area: data.area,
                 photos: data.photos,
                 documents: data.documents,
+                website: data.website,
+                testada: data.testada,
+                zona: data.zona,
+                setor: data.setor,
+                loteGeo: data.loteGeo,
+                ownerCpf: data.ownerCpf,
+                status: data.status,
+                isAvailable: data.isAvailable,
+                aliases: data.aliases,
+                displayId: data.displayId,
+                history: data.history,
+
                 createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
                 updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
             }
@@ -161,7 +204,7 @@ export const fetchLotsFromFirestore = async (
 
 export const checkCloudStatus = async (): Promise<{ lastUpdated: Date | null, totalLots: number }> => {
     try {
-        const metadataRef = doc(db, "metadata", "map_state");
+        const metadataRef = doc(db, "metadata_v2", "map_state");
         const snap = await getDoc(metadataRef);
         if (snap.exists()) {
             const data = snap.data();

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Realtime Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .status {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 5px solid;
+        }
+        .success { background: #1a3a1a; border-color: #4caf50; }
+        .error { background: #3a1a1a; border-color: #f44336; }
+        .warning { background: #3a3a1a; border-color: #ff9800; }
+        .info { background: #1a1a3a; border-color: #2196f3; }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1976d2; }
+        pre { background: #2a2a2a; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Supabase Realtime Diagnostic</h1>
+    <div id="logs"></div>
+    
+    <script>
+        const { createClient } = supabase;
+        
+        const SUPABASE_URL = 'https://tvsbgbroyauxyliybsvo.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_wCA2Jp5NYsa642jfygTITA_-fedhR-s';
+        
+        const logs = document.getElementById('logs');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            logs.appendChild(div);
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+        
+        async function runDiagnostics() {
+            log('🚀 Starting diagnostics...', 'info');
+            
+            // Test 1: Connection
+            log('Test 1: Creating Supabase client...', 'info');
+            const client = createClient(SUPABASE_URL, SUPABASE_KEY, {
+                realtime: {
+                    params: {
+                        eventsPerSecond: 10
+                    }
+                }
+            });
+            log('✅ Client created successfully', 'success');
+            
+            // Test 2: Fetch data
+            log('Test 2: Fetching data from lots table...', 'info');
+            try {
+                const { data, error } = await client.from('lots').select('*').limit(1);
+                if (error) {
+                    log(`❌ Error fetching data: ${error.message}`, 'error');
+                    log(`<pre>${JSON.stringify(error, null, 2)}</pre>`, 'error');
+                } else {
+                    log(`✅ Data fetch successful! Found ${data?.length || 0} row(s)`, 'success');
+                    if (data && data.length > 0) {
+                        log(`<pre>${JSON.stringify(data[0], null, 2)}</pre>`, 'info');
+                    }
+                }
+            } catch (err) {
+                log(`❌ Exception: ${err.message}`, 'error');
+            }
+            
+            // Test 3: Realtime subscription
+            log('Test 3: Setting up Realtime subscription...', 'info');
+            
+            const channel = client
+                .channel('lots_test_channel')
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'lots',
+                    },
+                    (payload) => {
+                        console.log(payload);
+                        log(`🎉 Realtime event received! Type: ${payload.eventType}`, 'success');
+                    }
+                )
+                .subscribe((status, err) => {
+                    if (status === 'SUBSCRIBED') {
+                        log('✅ Realtime subscription ACTIVE!', 'success');
+                        log('🎯 Everything is working! Realtime is enabled.', 'success');
+                    } else if (status === 'CHANNEL_ERROR') {
+                        log(`❌ Subscription failed: ${status}`, 'error');
+                        if (err) {
+                            log(`<pre>${JSON.stringify(err, null, 2)}</pre>`, 'error');
+                        }
+                        log('⚠️ Possible causes:', 'warning');
+                        log('1. Realtime not enabled in Supabase project settings', 'warning');
+                        log('2. Table not in supabase_realtime publication', 'warning');
+                        log('3. RLS policies blocking realtime', 'warning');
+                    } else if (status === 'TIMED_OUT') {
+                        log('⏱️ Subscription timed out', 'error');
+                    } else {
+                        log(`ℹ️ Status: ${status}`, 'info');
+                    }
+                });
+            
+            // Test 4: Check channel state periodically
+            let checkCount = 0;
+            const maxChecks = 10;
+            const checkInterval = setInterval(() => {
+                checkCount++;
+                const state = channel.state;
+                log(`Channel state check #${checkCount}: ${state}`, 'info');
+                
+                if (state === 'joined' || checkCount >= maxChecks) {
+                    clearInterval(checkInterval);
+                    if (state !== 'joined') {
+                        log('❌ Channel failed to join after 10 attempts', 'error');
+                        log('🔍 Checking project Realtime settings...', 'warning');
+                        log('Go to: https://supabase.com/dashboard/project/tvsbgbroyauxyliybsvo/settings/realtime', 'warning');
+                        log('Make sure Realtime is enabled for your project!', 'warning');
+                    }
+                }
+            }, 1000);
+        }
+        
+        // Auto-run on load
+        runDiagnostics();
+    </script>
+</body>
+</html>

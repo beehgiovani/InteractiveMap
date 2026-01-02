@@ -5,12 +5,22 @@
  * Integra o componente de mapa com a pasta de lote
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Lot, LotInfo } from "@/types";
 import InteractiveMap from "@/components/InteractiveMap";
-import LotFolder from "@/components/LotFolder";
+import { LotInspector } from "@/components/LotInspector";
+import { SmartCalcModal } from "@/components/SmartCalcModal";
+import { SmartCalcNavigator } from "@/components/SmartCalcNavigator";
+import { SearchNavigator } from "@/components/SearchNavigator";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import { CombinationResult } from "@/lib/adjacency";
+import { useIsMobile } from "@/hooks/useMobile";
+import { useHistory } from "@/hooks/useHistory";
+import { useSupabaseLots } from "@/hooks/useSupabaseLots";
+import { batchUpsertLots, batchDeleteLots } from "@/lib/supabaseLots";
+
+
 
 // Componente simples de Error Boundary
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
@@ -57,143 +67,97 @@ export default function Home() {
     return () => window.removeEventListener('error', handleError);
   }, []);
 
+  // Auto-detect mobile device (phone/tablet vs computer)
+  const isMobile = useIsMobile();
+
+  // State for Lot Selection & Editing
   const [selectedLot, setSelectedLot] = useState<Lot | null>(null);
-  const [lotsData, setLotsData] = useState<Map<string, LotInfo>>(() => {
-    // Carregar dados salvos do localStorage ao iniciar
-    const savedData = localStorage.getItem("lotsData");
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        const map = new Map<string, LotInfo>();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Object.entries(parsed).forEach(([key, value]: [string, any]) => {
-          map.set(key, {
-            ...value,
-            createdAt: new Date(value.createdAt),
-            updatedAt: new Date(value.updatedAt),
-          });
-        });
-        return map;
-      } catch (error) {
-        console.error("Erro ao carregar dados salvos:", error);
-      }
-    }
-    return new Map<string, LotInfo>();
-  });
+  const [highlightedLots, setHighlightedLots] = useState<Lot[]>([]); // New state for Smart Calc selection
+  const [calcResults, setCalcResults] = useState<CombinationResult[]>([]); // GLOBAL SMART CALC STATE
+  const [isSmartCalcOpen, setIsSmartCalcOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false); // New state for Search
+  const [highlightSource, setHighlightSource] = useState<'search' | 'smart_calc' | null>(null); // Track source of highlights
+  const [startEditing, setStartEditing] = useState(false); // New state
+  // Supabase integration with real-time sync
+  const {
+    lots: supabaseLots,
+    lotsData: supabaseLotsData,
+    loading: supabaseLoading,
+    error: supabaseError,
+    lastSynced,
+    updateLot: supabaseUpdateLot,
+    deleteLot: supabaseDeleteLot,
+    createLot: supabaseCreateLot,
+    setLots: setSupabaseLots,
+    setLotsData: setSupabaseLotsData,
+  } = useSupabaseLots();
+
+  // Create aliases for backward compatibility
+  const lotsData = supabaseLotsData;
+  const setLotsData = setSupabaseLotsData;
   
-  // --- SYNC STATE ---
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"checking" | "syncing" | "uptodate" | "error">("checking");
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [syncTotal, setSyncTotal] = useState(0);
-  const [cloudDate, setCloudDate] = useState<Date | null>(null);
+  // Removed Firestore cloud check - Supabase handles sync automatically
 
-  // --- STARTUP CHECK ---
+  // Removed loadLocalData and downloadFromCloud - Supabase hook handles data loading
+
+  // Use Supabase lots with history support
+  const [manualLots, setManualLots, { undo, redo, canUndo, canRedo, reset }] = useHistory<Lot[]>(supabaseLots);
+
+  // Sync Supabase data to local History state when loaded
   useEffect(() => {
-      const checkCloud = async () => {
-          try {
-              // Only check if we haven't checked recently? For now check always on boot.
-              const cloudState = await import("../lib/firestoreSync").then(m => m.checkCloudStatus());
-              
-              if (cloudState.lastUpdated) {
-                  setCloudDate(cloudState.lastUpdated);
-                  
-                  // Simple check: If cloud exists and (local is empty OR cloud is newer)
-                  // For Development: Always suggest sync if cloud exists? 
-                  // Let's use a "Last Synced" timestamp in localStorage if available.
-                  const localLastSync = localStorage.getItem("last_cloud_sync");
-                  
-                  const localDate = localLastSync ? new Date(localLastSync) : new Date(0);
-                  
-                  // Check if cloud is significantly newer (> 1 min)
-                  if (cloudState.lastUpdated.getTime() > localDate.getTime() + 60000) {
-                      setSyncStatus("checking"); // Triggers modal prompt
-                      setShowSyncModal(true);
-                  }
-              }
-          } catch (e) {
-              console.error("Failed to check cloud:", e);
-          }
-      };
-      checkCloud();
-  }, []);
+    if (!supabaseLoading && supabaseLots.length > 0 && manualLots.length === 0) {
+      console.log(`📥 Syncing ${supabaseLots.length} lots from Supabase to Map State`);
+      reset(supabaseLots);
+    }
+  }, [supabaseLots, supabaseLoading, manualLots.length, reset]);
 
-  const handleDownloadFromCloud = async () => {
-      setSyncStatus("syncing");
-      setSyncProgress(0);
+  // localStorage auto-save handled by useSupabaseLots hook
+
+
+  // Supabase handles real-time sync automatically - no manual dirty tracking needed
+
+  const handleBatchUpdate = async (newLots: Lot[], newLotsData: Map<string, LotInfo>, changedIds?: string[]) => {
+      console.log(`Promoting Batch Update: ${newLots.length} lots, ${newLotsData.size} info records. Changed: ${changedIds?.length ?? 'ALL'}`);
+      
+      // Update local state
+      setSupabaseLots(newLots);
+      setSupabaseLotsData(newLotsData);
+      
+      // Sync to Supabase
       try {
-          const { fetchLotsFromFirestore } = await import("../lib/firestoreSync");
-          const { locLots, infoMap } = await fetchLotsFromFirestore((current, total) => {
-              setSyncProgress(current);
-              setSyncTotal(total);
-          });
-
-          // Update State
-          // Merge with existing manuaLots? Or Replace?
-          // Strategy: Replace "Manual Lots" with Cloud Lots as Source of Truth.
-          // BUT: Keep local-only changes? No, "Sync" implies Cloud is Truth.
-          
-          setManualLots(locLots);
-          setLotsData(infoMap); // This needs to be lifted or handled? 
-          // Wait, setLotsData is not in Home props passed down usually... 
-          // Ah, lotsData is LOCAL in Home.tsx? Let's check.
-          
-          // Home.tsx doesn't have setLotsData exposed easily... 
-          // Wait, Home.tsx HAS lotsData state? 
-          // Let me check file content again quickly.
-          
-          localStorage.setItem("last_cloud_sync", new Date().toISOString());
-          setSyncStatus("uptodate");
-          setTimeout(() => setShowSyncModal(false), 2000);
-      } catch (e) {
-          console.error("Sync Download Failed:", e);
-          setSyncStatus("error");
+          // OPTIMIZATION: Only upsert changed lots if specified
+          if (changedIds && changedIds.length > 0) {
+              const lotsToUpsert = newLots.filter(l => changedIds.includes(l.id));
+              if (lotsToUpsert.length > 0) {
+                   await batchUpsertLots(lotsToUpsert, newLotsData);
+                   console.log(`Incremental sync: ${lotsToUpsert.length} lots updated.`);
+              }
+          } else if (changedIds && changedIds.length === 0) {
+              // Explicitly empty changedIds (e.g. after Delete), so no upsert needed.
+              // Logic: The deleted lot is handled by handleDeleteIds. The remaining lots are unchanged.
+              console.log('No lots to upsert (Delete handled separately or no changes).');
+          } else {
+              // Fallback: Full Sync (if changedIds is undefined)
+              // This covers cases where we might not be tracking IDs strictly yet or want to be safe
+              await batchUpsertLots(newLots, newLotsData);
+              console.log('Full batch update synced to Supabase (Fallback)');
+          }
+      } catch (error) {
+          console.error('Failed to sync batch update:', error);
+      }
+  };
+  
+  const handleDeleteIds = async (deletedIds: string[]) => {
+      try {
+          await batchDeleteLots(deletedIds);
+          console.log(`Deleted ${deletedIds.length} lots from Supabase`);
+      } catch (error) {
+          console.error('Failed to delete lots:', error);
       }
   };
 
-  // State lifted from InteractiveMap
-  const [manualLots, setManualLots] = useState<Lot[]>(() => {
-      try {
-          let saved = localStorage.getItem("manualMapData_v2");
-          
-          // Fallback/Migration: Check v1 if v2 is missing or empty
-          if (!saved || saved === "[]") {
-              const savedV1 = localStorage.getItem("manualMapData");
-              if (savedV1 && savedV1.length > 2) {
-                  console.log("Restoring data from legacy manualMapData...");
-                  saved = savedV1;
-              }
-          }
 
-          if (!saved) return [];
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-              return parsed.filter(l => l && l.id && Array.isArray(l.coordinates));
-          }
-          return [];
-      } catch (e) {
-          console.error("Failed to load map data", e);
-          return [];
-      }
-  });
 
-  // State for Auto-Save feedback
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-
-  // Save to localStorage whenever manualLots changes
-  useEffect(() => {
-      localStorage.setItem("manualMapData_v2", JSON.stringify(manualLots));
-      setLastSaved(new Date());
-  }, [manualLots]);
-
-  // Salvar dados no localStorage sempre que mudam
-  useEffect(() => {
-    const dataToSave: Record<string, LotInfo> = {};
-    lotsData.forEach((value, key) => {
-      dataToSave[key] = value;
-    });
-    localStorage.setItem("lotsData", JSON.stringify(dataToSave));
-  }, [lotsData]);
 
   // Clean Legacy Data Effect
   useEffect(() => {
@@ -213,32 +177,127 @@ export default function Home() {
      }
   }, []); // Run once on mount (after initial load)
 
-  const handleLotClick = (lot: Lot) => {
+  const handleLotClick = (lot: Lot | null, shouldEdit: boolean = false) => {
+    if (!lot) {
+        setSelectedLot(null);
+        return;
+    }
+
     // Atualizar as informações do lote com os dados salvos
     const savedInfo = lotsData.get(lot.id);
+    setStartEditing(shouldEdit); // Set editing intent based on click source
+
     if (savedInfo) {
       setSelectedLot({
         ...lot,
         info: savedInfo,
       });
     } else {
-      setSelectedLot(lot);
+      // Ensure 'info' is initialized if missing
+      setSelectedLot({
+          ...lot,
+          info: lot.info || {
+              id: lot.id,
+              quadra: lot.quadra,
+              lote: lot.lote,
+              notes: "",
+              createdAt: new Date(),
+              updatedAt: new Date()
+          }
+      });
     }
   };
 
-  const handleSaveLotInfo = (lotInfo: LotInfo) => {
-    setLotsData((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(lotInfo.id, lotInfo);
-      return newMap;
-    });
+  const handleSaveLotInfo = async (lotInfo: LotInfo) => {
+    try {
+      // 1. Get current info to compare (for propagation logic)
+      const currentInfo = lotsData.get(lotInfo.id);
+      const sectorChanged = currentInfo?.setor !== lotInfo.setor;
+      const zoneChanged = currentInfo?.zona !== lotInfo.zona;
 
-    // Atualizar o lote selecionado
-    if (selectedLot) {
-      setSelectedLot({
-        ...selectedLot,
-        info: lotInfo,
-      });
+      if (sectorChanged || zoneChanged) {
+           console.log(`📡 Propagating Zone/Sector change to Quadra ${lotInfo.quadra}`);
+           
+           // Find all siblings in same quadra
+           const siblings = manualLots.filter(l => l.quadra === lotInfo.quadra);
+           
+           if (siblings.length > 0) {
+               const lotsToUpdate: Lot[] = [];
+               const infoToUpdate = new Map<string, LotInfo>();
+
+               siblings.forEach(sibling => {
+                   // Get existing info or create new
+                   const oldSiblingInfo = lotsData.get(sibling.id) || {
+                       id: sibling.id,
+                       quadra: sibling.quadra,
+                       lote: sibling.lote,
+                       createdAt: new Date(),
+                       updatedAt: new Date(),
+                       notes: ""
+                   };
+
+                   // Create updated info object
+                   const newSiblingInfo: LotInfo = {
+                       ...oldSiblingInfo,
+                       zona: lotInfo.zona,   // Propagate Zone
+                       setor: lotInfo.setor, // Propagate Sector
+                       updatedAt: new Date()
+                   };
+
+                   // If it's the lot actually being edited, use the full passed info (which might have other edits like price)
+                   if (sibling.id === lotInfo.id) {
+                       infoToUpdate.set(lotInfo.id, lotInfo);
+                   } else {
+                       infoToUpdate.set(sibling.id, newSiblingInfo);
+                   }
+                   
+                   // Prepare Lot object for local update (merging info)
+                   lotsToUpdate.push({ ...sibling, info: infoToUpdate.get(sibling.id)! });
+               });
+
+               // BATCH UPDATE TO SUPABASE
+               await batchUpsertLots(lotsToUpdate, infoToUpdate);
+
+               // UPDATE LOCAL STATE
+               setSupabaseLotsData(prev => {
+                   const next = new Map(prev);
+                   infoToUpdate.forEach((val, key) => next.set(key, val));
+                   return next;
+               });
+               
+               // Update Manual Lots
+               setManualLots(prev => prev.map(l => {
+                   const updatedInfo = infoToUpdate.get(l.id);
+                   return updatedInfo ? { ...l, info: updatedInfo } : l;
+               }));
+
+               // Update Selected Lot if it matches
+               if (selectedLot && selectedLot.id === lotInfo.id) {
+                    setSelectedLot({ ...selectedLot, info: lotInfo });
+               }
+
+               return; // Exit, we handled everything in batch
+           }
+      }
+
+      // Fallback: Standard Single Update (if no propagation needed or empty quadra?)
+      // Update Supabase
+      await supabaseUpdateLot(lotInfo.id, {}, lotInfo);
+      
+      // Update local selected lot
+      if (selectedLot) {
+        setSelectedLot({
+          ...selectedLot,
+          info: lotInfo,
+        });
+      }
+
+      // Optimistically update manualLots to reflect changes immediately on map
+      setManualLots(prev => prev.map(l => 
+          l.id === lotInfo.id ? { ...l, info: lotInfo } : l
+      ));
+    } catch (error) {
+      console.error('Failed to save lot info:', error);
     }
   };
 
@@ -260,97 +319,105 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(url);
   };
+  // Manual sync not needed - Supabase real-time handles everything automatically
 
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full overflow-hidden bg-gray-100">
         <AppSidebar 
             selectedLot={selectedLot} 
-            onCloseLot={handleCloseLotFolder}
-            onSaveLot={handleSaveLotInfo}
             lotsData={lotsData}
             manualLots={manualLots}
             onSelectLot={handleLotClick}
             onExportBackup={handleExportBackup}
-            lastSaved={lastSaved}
+            lastSaved={lastSynced}
+            highlightedLots={highlightedLots}
+            onSetHighlightedLots={(lots) => {
+                setHighlightedLots(lots);
+                setHighlightSource(lots.length > 0 ? 'search' : null);
+            }}
+            onOpenSmartCalc={() => setIsSmartCalcOpen(true)}
+            isMobile={isMobile}
         />
         
         <SidebarInset className="relative flex flex-col flex-1 h-full overflow-hidden">
              {/* Map Container */}
              <div className="flex-1 relative w-full h-full">
                 {/* Floating Sidebar Trigger (Mobile/Desktop Collapsed) */}
-                <div className="absolute top-4 left-4 z-50">
+                <div className="absolute top-4 left-4 z-50 flex items-center gap-2">
                     <SidebarTrigger className="bg-white shadow-md border border-gray-200 rounded-lg" />
+                    {supabaseLoading && (
+                        <div className="bg-blue-600 text-white text-xs px-2 py-1 rounded shadow-md animate-pulse">
+                            ⏳ Carregando...
+                        </div>
+                    )}
                 </div>
 
                 <ErrorBoundary>
                     <InteractiveMap
-                    onLotClick={handleLotClick}
-                    selectedLotId={selectedLot?.id}
-                    manualLots={manualLots}
-                    setManualLots={setManualLots}
+                        onLotClick={handleLotClick}
+                        selectedLotId={selectedLot?.id}
+                        manualLots={manualLots}
+                        setManualLots={setManualLots}
+                        lotsData={lotsData}
+                        onBatchUpdate={handleBatchUpdate}
+                        onDeleteIds={handleDeleteIds}
+                        onExportBackup={handleExportBackup}
+                        onCloudSync={() => console.log('Manual sync not needed with Supabase')}
+                        highlightedLots={highlightedLots}
+                        isMobile={isMobile}
+                        undo={undo}
+                        redo={redo}
+                        canUndo={canUndo}
+                        canRedo={canRedo}
                     />
-                </ErrorBoundary>
+            </ErrorBoundary>
              </div>
         </SidebarInset>
 
-        {/* SYNC MODAL */}
-        {showSyncModal && (
-            <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-                    <h3 className="text-lg font-bold mb-2">Sincronização com a Nuvem</h3>
-                    
-                    {syncStatus === "checking" && (
-                        <div>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Encontramos dados mais recentes na nuvem ({cloudDate?.toLocaleString()}).
-                                Deseja atualizar seu mapa local?
-                            </p>
-                            <div className="flex justify-end gap-2">
-                                <button 
-                                    onClick={() => setShowSyncModal(false)}
-                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
-                                >
-                                    Ignorar
-                                </button>
-                                <button 
-                                    onClick={handleDownloadFromCloud}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                >
-                                    Atualizar Agora
-                                </button>
-                            </div>
-                        </div>
-                    )}
+        {/* LOT INSPECTOR (FLOATING) */}
+        <LotInspector 
+           lot={selectedLot}
+           onClose={handleCloseLotFolder}
+           onSave={handleSaveLotInfo}
+           lotsData={lotsData}
+           isMobile={isMobile}
+        />
 
-                    {syncStatus === "syncing" && (
-                        <div>
-                            <p className="text-sm text-gray-600 mb-2">Baixando dados... {syncProgress} / {syncTotal}</p>
-                            <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                <div 
-                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
-                                    style={{ width: `${syncTotal > 0 ? (syncProgress / syncTotal) * 100 : 0}%` }}
-                                ></div>
-                            </div>
-                        </div>
-                    )}
-
-                    {syncStatus === "uptodate" && (
-                        <div className="text-center text-green-600 font-bold py-4">
-                            ✅ Mapa Atualizado com Sucesso!
-                        </div>
-                    )}
-
-                     {syncStatus === "error" && (
-                        <div className="text-center text-red-600 py-4">
-                            ❌ Erro ao baixar dados. Tente novamente.
-                            <br/>
-                            <button onClick={() => setShowSyncModal(false)} className="mt-2 text-sm underline text-gray-500">Fechar</button>
-                        </div>
-                    )}
-                </div>
-            </div>
+        {/* SEARCH NAVIGATOR (FLOATING ON MAP) */}
+        {highlightSource === 'search' && (
+            <SearchNavigator 
+                highlightedLots={highlightedLots}
+                selectedLot={selectedLot}
+                onSelectLot={(lot) => {
+                    handleLotClick(lot, false);
+                    // Ensure highlight source remains search
+                    setHighlightSource('search');
+                }}
+                onClose={() => {
+                    setHighlightedLots([]);
+                    setHighlightSource(null);
+                }}
+                lotsData={lotsData}
+            />
         )}
+
+        {/* SMART CALC MODAL */}
+        <SmartCalcModal 
+            isOpen={isSmartCalcOpen}
+            onOpenChange={setIsSmartCalcOpen}
+            manualLots={manualLots}
+            lotsData={lotsData}
+            onSetHighlightedLots={(lots) => {
+                setHighlightedLots(lots);
+                setHighlightSource(lots.length > 0 ? 'smart_calc' : null);
+            }}
+            onSelectLot={handleLotClick}
+            highlightedLots={highlightedLots}
+            calcResults={calcResults}
+            setCalcResults={setCalcResults}
+            isMobile={isMobile}
+        />
 
       </div>
     </SidebarProvider>
